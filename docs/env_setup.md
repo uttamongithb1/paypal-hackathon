@@ -130,6 +130,12 @@ FEATURE_ANALYTICS=true
 FEATURE_GUEST_ORDERS=true
 FEATURE_MERCHANT_DASHBOARD=true
 
+# ── Framing / embedding ─────────────────────────────────────────────────
+# Origins allowed to frame the app (CSP `frame-ancestors`). Empty in production, so the app can
+# only be framed by itself. Development defaults to the workspace preview proxy host so the live
+# preview iframe renders the app; set explicitly for any other embedding host.
+PREVIEW_EMBED_ORIGINS=https://*.e2b.app
+
 # ── Rate limits (per window; see security_privacy.md §7) ────────────────
 RATE_CHAT=20/5m
 RATE_AUTH=10/15m

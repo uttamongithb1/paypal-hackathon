@@ -96,6 +96,14 @@ export const env = {
   featureAnalytics: bool('FEATURE_ANALYTICS', true),
   featureGuestOrders: bool('FEATURE_GUEST_ORDERS', true),
 
+  // Origins allowed to frame the app (CSP `frame-ancestors`). Empty in production → the app can
+  // only be framed by itself; development defaults to the workspace preview proxy so the live
+  // preview iframe can render it. Override with PREVIEW_EMBED_ORIGINS="https://a,https://b".
+  previewEmbedOrigins: str(
+    'PREVIEW_EMBED_ORIGINS',
+    str('NODE_ENV', 'development') === 'production' ? '' : 'https://*.e2b.app'
+  ).split(',').map((origin) => origin.trim()).filter(Boolean),
+
   rates: {
     chat: parseRate(str('RATE_CHAT', '60/5m')),
     auth: parseRate(str('RATE_AUTH', '20/15m')),

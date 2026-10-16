@@ -15,10 +15,14 @@ export function createApp(container) {
   app.set('trust proxy', true);
 
   // Security headers (CSP allows the PayPal SDK in sandbox mode).
+  // Framing: production stays un-embeddable. The workspace preview shows this app inside an iframe
+  // on the proxy origin, so when embed origins are configured we omit X-Frame-Options (which the
+  // browser would otherwise enforce even alongside frame-ancestors) and allow them in the CSP.
+  const embedders = env.previewEmbedOrigins;
   app.use((req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.set('X-Frame-Options', 'SAMEORIGIN');
+    if (!embedders.length) res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set(
       'Content-Security-Policy',
       [
@@ -31,7 +35,8 @@ export function createApp(container) {
         "frame-src https://www.paypal.com https://www.sandbox.paypal.com",
         "object-src 'none'",
         "base-uri 'self'",
-        "form-action 'self' https://www.paypal.com"
+        "form-action 'self' https://www.paypal.com",
+        `frame-ancestors 'self'${embedders.length ? ` ${embedders.join(' ')}` : ''}`
       ].join('; ')
     );
     next();
