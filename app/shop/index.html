@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShopPilot AI — describe what you need, approve the payment yourself</title>
+  <meta name="description" content="ShopPilot AI: a conversational storefront where an agent recommends grounded products from a real catalogue and only you can approve the PayPal payment." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M9 22V10h6l3 7 3-7h4v12h-3.4v-7.6L18 22h-2.6l-3.6-7.6V22z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" data-link>
+      <span class="brand__mark">SP</span>
+      <span class="brand__name">ShopPilot <span class="brand__ai">AI</span></span>
+    </a>
+    <nav class="topnav" aria-label="Main">
+      <a href="/shop" data-link data-nav="shop">Shop</a>
+      <a href="/orders" data-link data-nav="orders">Orders</a>
+      <a href="/merchant" data-link data-nav="merchant">Merchant</a>
+    </nav>
+    <div class="topbar__right">
+      <span class="pill pill--muted" id="payments-pill" title="Payment mode">payments: …</span>
+      <button class="btn btn--ghost btn--sm" id="theme-toggle" type="button" aria-label="Toggle colour theme">◐</button>
+      <button class="btn btn--secondary btn--sm" id="auth-button" type="button">Sign in</button>
+      <button class="btn btn--primary btn--sm" id="cart-button" type="button" aria-haspopup="dialog">
+        Cart <span class="badge badge--brand" id="cart-count">0</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout" id="main">
+    <!-- ── Conversation ──────────────────────────────────────────────────── -->
+    <section class="pane pane--chat" id="view-shop" data-view="shop">
+      <div class="chat-head">
+        <div>
+          <h1 class="chat-head__title">Tell me what you need</h1>
+          <p class="chat-head__sub">Real catalogue, real stock, server-calculated prices — and you approve the payment, always.</p>
+        </div>
+        <button class="btn btn--ghost btn--sm" id="new-search" type="button" title="Clear the conversation">New search</button>
+      </div>
+
+      <ol class="chat-log" id="chat-log" aria-live="polite" aria-atomic="false"></ol>
+
+      <div class="composer">
+        <form class="composer__form" id="chat-form" autocomplete="off">
+          <label class="sr-only" for="chat-input">Message ShopPilot</label>
+          <input class="composer__input" id="chat-input" name="message" placeholder="e.g. a laptop for full-stack development under $900 with 16 GB RAM" maxlength="800" />
+          <button class="btn btn--primary" id="chat-send" type="submit">Send</button>
+        </form>
+        <div class="composer__meta">
+          <div class="quick-replies" id="quick-replies"></div>
+          <span class="composer__hint" id="planner-hint"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Catalogue / cart rail ─────────────────────────────────────────── -->
+    <aside class="pane pane--rail" id="view-rail" data-view="rail" aria-label="Catalogue and cart">
+      <div class="rail-head">
+        <h2 class="rail-head__title">Catalogue</h2>
+        <div class="rail-filters">
+          <select id="category-filter" aria-label="Filter by category"><option value="">All categories</option></select>
+          <input id="rail-search" type="search" placeholder="Search products…" aria-label="Search products" />
+        </div>
+      </div>
+      <div class="rail-grid" id="rail-grid"></div>
+      <div class="rail-foot"><span id="rail-count" class="muted"></span></div>
+    </aside>
+
+    <!-- ── Orders ────────────────────────────────────────────────────────── -->
+    <section class="pane pane--wide" id="view-orders" data-view="orders" hidden>
+      <div class="page-head">
+        <h1>Your orders</h1>
+        <p class="muted">Every order shows where the money actually is: which state the order reached, which PayPal capture proved it, and what happens next.</p>
+      </div>
+      <div id="orders-body"></div>
+    </section>
+
+    <!-- ── Checkout ──────────────────────────────────────────────────────── -->
+    <section class="pane pane--wide" id="view-checkout" data-view="checkout" hidden>
+      <div id="checkout-body"></div>
+    </section>
+
+    <!-- ── Merchant dashboard ────────────────────────────────────────────── -->
+    <section class="pane pane--wide" id="view-merchant" data-view="merchant" hidden>
+      <div id="merchant-body"></div>
+    </section>
+  </main>
+
+  <div class="drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" hidden>
+    <div class="drawer__scrim" data-close="cart"></div>
+    <div class="drawer__panel">
+      <header class="drawer__head">
+        <h2 id="cart-drawer-title">Your cart</h2>
+        <button class="icon-btn" type="button" data-close="cart" aria-label="Close cart">✕</button>
+      </header>
+      <div class="drawer__body" id="cart-body"></div>
+      <footer class="drawer__foot" id="cart-foot"></footer>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+
+  <footer class="pagefoot">
+    <span>ShopPilot AI reference implementation · agent never pays · <span id="build-info" class="muted"></span></span>
+    <span class="pagefoot__links">
+      <a href="/api/v1/readyz" target="_blank" rel="noreferrer">readiness</a>
+      <a href="/api/v1/merchant/analytics" target="_blank" rel="noreferrer">analytics API</a>
+      <a href="/api/v1/version" target="_blank" rel="noreferrer">version</a>
+    </span>
+  </footer>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "shoppilot-ai-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ShopPilot AI reference implementation \u2014 conversational shopping with grounded recommendations and a verified PayPal checkout. Implements the contracts in ../prd.md, ../docs/api_spec.md, ../docs/ai_agent_spec.md and ../docs/payments_paypal.md.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
+    "seed": "node scripts/seed.mjs",
+    "reset": "node scripts/reset.mjs",
+    "demo": "node scripts/demo.mjs",
+    "art": "node scripts/generate-product-art.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "node --test --test-reporter=spec tests/unit tests/integration tests/evals",
+    "test:unit": "node --test tests/unit",
+    "test:integration": "node --test tests/integration",
+    "test:evals": "node --test tests/evals",
+    "ledger": "node scripts/ledger-check.mjs",
+    "verify": "npm run reset && npm run seed -- --demo-orders && npm run test && npm run ledger",
+    "paypal:check": "node scripts/paypal-sandbox-check.mjs"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "zod": "^3.25.76"
+  }
+}

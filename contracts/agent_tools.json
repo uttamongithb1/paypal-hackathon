@@ -1,0 +1,525 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shoppilot.ai/contracts/agent_tools.json",
+  "title": "ShopPilot AI — Agent Tool Contract",
+  "version": "1.0.0",
+  "notes": [
+    "This file is the single source of truth for the LLM tool definitions. The runtime registry in apps/api/src/agent/tools/index.ts MUST be generated from (or asserted against) this file; CI fails on drift.",
+    "Tools are grouped by side effect: read = parallel-safe and free, write = mutates state sequentially, sideEffecting = creates a draft order/holds and requires explicit user intent.",
+    "No tool may create, authorise, capture or refund a payment. Money movement is a user-authenticated HTTP flow outside the agent (see docs/payments_paypal.md).",
+    "All ids, session/user identity and authorisation are resolved server-side; the model never supplies userId/sessionId.",
+    "Every tool returns a JSON object. Errors are returned IN-BAND as { ok: false, error: { code, message, retryable } } so the model can recover or relay honestly."
+  ],
+  "envelope": {
+    "success": { "ok": true, "data": {} },
+    "error": {
+      "ok": false,
+      "error": {
+        "code": "string (from docs/api_spec.md §9)",
+        "message": "human-readable, safe to paraphrase to the shopper",
+        "retryable": "boolean",
+        "details": "object (optional, developer-facing)"
+      }
+    }
+  },
+  "limits": {
+    "maxToolIterations": 6,
+    "perToolTimeoutMs": 8000,
+    "turnTimeoutMs": 45000,
+    "maxProductsReturned": 10,
+    "maxComparedProducts": 4,
+    "maxCartLines": 20,
+    "maxLineQuantity": 10
+  },
+  "tools": [
+    {
+      "name": "search_products",
+      "group": "read",
+      "description": "Search the live catalogue with hard constraints and soft preferences. Use this for every recommendation. Returns ranked products with the constraint match analysis, a deterministic score, curated pros/cons and an 'explain' string describing how the candidate set was narrowed.",
+      "whenToUse": "Any time the shopper states or changes what they need, or asks for options/alternatives.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": { "type": "string", "maxLength": 200, "description": "Free-text keywords (e.g. 'full-stack development laptop')." },
+          "categorySlug": { "type": "string", "description": "One of the catalogue category slugs, e.g. 'laptops'." },
+          "budgetMaxMinor": { "type": "integer", "minimum": 0, "description": "Hard budget cap in USD cents. 90000 = $900.00." },
+          "filters": {
+            "type": "array",
+            "maxItems": 12,
+            "description": "Hard constraints. Keys MUST be filterable attributes from the category's attributeSchema, or priceMinor.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "op", "value"],
+              "properties": {
+                "key": { "type": "string", "examples": ["ramGb", "storageGb", "batteryWh", "weightG", "screenIn", "cameraMp", "noiseCancelling", "priceMinor"] },
+                "op": { "type": "string", "enum": ["gte", "lte", "eq", "in"] },
+                "value": { "oneOf": [{ "type": "number" }, { "type": "string" }, { "type": "boolean" }, { "type": "array" }] }
+              }
+            }
+          },
+          "softPreferences": {
+            "type": "array",
+            "maxItems": 6,
+            "description": "Ranking signals, not filters. They influence order, never inclusion.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "direction"],
+              "properties": {
+                "key": { "type": "string", "examples": ["batteryWh", "weightG", "ratingAvg", "warrantyMonths", "priceMinor"] },
+                "direction": { "type": "string", "enum": ["higher_better", "lower_better"] },
+                "weight": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 }
+              }
+            }
+          },
+          "inStockOnly": { "type": "boolean", "default": true },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10, "default": 5 },
+          "relaxBudgetBps": { "type": "integer", "minimum": 0, "maximum": 300, "default": 300, "description": "Budget grace in basis points (300 = 3%). Items within grace are returned with slightlyOverBudget=true." }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["count", "relaxed", "products", "explain"],
+        "properties": {
+          "count": { "type": "integer" },
+          "relaxed": { "type": "array", "items": { "type": "string" }, "description": "Human-readable list of relaxations applied, e.g. ['budget +3%', 'dropped: brand=Lenovo']." },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["productId", "slug", "title", "brand", "merchant", "price", "stock", "availability", "matched"],
+              "properties": {
+                "productId": { "type": "string" },
+                "slug": { "type": "string" },
+                "title": { "type": "string" },
+                "brand": { "type": "string" },
+                "merchant": { "type": "object", "required": ["id", "name"], "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+                "price": {
+                  "type": "object",
+                  "required": ["amountMinor", "currency"],
+                  "properties": {
+                    "amountMinor": { "type": "integer" },
+                    "currency": { "type": "string", "const": "USD" },
+                    "display": { "type": "string" },
+                    "compareAtMinor": { "type": "integer" },
+                    "slightlyOverBudget": { "type": "boolean" }
+                  }
+                },
+                "stock": { "type": "integer", "minimum": 0 },
+                "availability": { "type": "string", "enum": ["in_stock", "low_stock", "out_of_stock"] },
+                "attributes": { "type": "object", "additionalProperties": { "type": ["number", "string", "boolean"] } },
+                "matched": { "type": "array", "items": { "type": "string" }, "description": "Constraint labels this product satisfies, e.g. ['RAM ≥ 16 GB']." },
+                "unmet": { "type": "array", "items": { "type": "string" }, "description": "Soft preferences it misses." },
+                "score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "pros": { "type": "array", "items": { "type": "string" } },
+                "cons": { "type": "array", "items": { "type": "string" } },
+                "whyItFits": { "type": "string" },
+                "warrantyMonths": { "type": "integer" },
+                "rating": { "type": "object", "properties": { "avg": { "type": "number" }, "count": { "type": "integer" } } }
+              }
+            }
+          },
+          "explain": { "type": "string" }
+        }
+      },
+      "errors": ["UNFILTERABLE_ATTRIBUTE", "INVALID_CATEGORY", "VALIDATION_ERROR", "INTERNAL"]
+    },
+    {
+      "name": "get_product",
+      "group": "read",
+      "description": "Fetch full details for one product by id or slug, including grouped specs, description, warranty, return window and merchant policies. Use before answering detailed questions about a specific item.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "oneOf": [{ "required": ["productId"] }, { "required": ["slug"] }],
+        "properties": {
+          "productId": { "type": "string" },
+          "slug": { "type": "string" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["productId", "title", "price", "stock", "specs"],
+        "properties": {
+          "productId": { "type": "string" },
+          "slug": { "type": "string" },
+          "title": { "type": "string" },
+          "brand": { "type": "string" },
+          "merchant": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "policies": { "type": "object" } } },
+          "price": { "type": "object", "properties": { "amountMinor": { "type": "integer" }, "currency": { "type": "string" }, "display": { "type": "string" }, "compareAtMinor": { "type": "integer" } } },
+          "stock": { "type": "integer" },
+          "availability": { "type": "string", "enum": ["in_stock", "low_stock", "out_of_stock"] },
+          "attributes": { "type": "object" },
+          "specs": { "type": "array", "items": { "type": "object", "properties": { "group": { "type": "string" }, "key": { "type": "string" }, "label": { "type": "string" }, "value": { "type": "string" } } } },
+          "pros": { "type": "array", "items": { "type": "string" } },
+          "cons": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "shortDescription": { "type": "string" },
+          "warrantyMonths": { "type": "integer" },
+          "returnDays": { "type": "integer" },
+          "sellingFast": { "type": "boolean" }
+        }
+      },
+      "errors": ["PRODUCT_NOT_FOUND", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "compare_products",
+      "group": "read",
+      "description": "Build a like-for-like comparison table for 2 to 4 products that share a category. Rows are ordered by the category's attribute schema; each row marks which product is better. Returns caveats when items are not directly comparable.",
+      "whenToUse": "When the shopper asks to compare, or is choosing between shortlisted options.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productIds"],
+        "properties": {
+          "productIds": { "type": "array", "minItems": 2, "maxItems": 4, "items": { "type": "string" } },
+          "focusKeys": { "type": "array", "maxItems": 8, "items": { "type": "string" }, "description": "Optional subset of attribute keys the shopper cares about." }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["products", "rows", "summary", "caveats"],
+        "properties": {
+          "products": { "type": "array", "items": { "type": "object" } },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["key", "label", "values"],
+              "properties": {
+                "key": { "type": "string" },
+                "label": { "type": "string" },
+                "unit": { "type": "string" },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["productId", "display"],
+                    "properties": {
+                      "productId": { "type": "string" },
+                      "raw": { "type": ["number", "string", "boolean", "null"] },
+                      "display": { "type": "string" },
+                      "better": { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "summary": { "type": "string" },
+          "caveats": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "errors": ["PRODUCT_NOT_FOUND", "CATEGORY_MISMATCH", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "check_availability",
+      "group": "read",
+      "description": "Re-check live stock and price for products already shown in the conversation. Use before recommending an item from an earlier turn and whenever the shopper asks 'is it still available?'.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productIds"],
+        "properties": { "productIds": { "type": "array", "minItems": 1, "maxItems": 10, "items": { "type": "string" } } }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["productId", "stock", "availability"],
+              "properties": {
+                "productId": { "type": "string" },
+                "stock": { "type": "integer" },
+                "availability": { "type": "string", "enum": ["in_stock", "low_stock", "out_of_stock"] },
+                "priceChanged": { "type": "boolean" },
+                "previousPriceMinor": { "type": "integer" },
+                "currentPriceMinor": { "type": "integer" },
+                "archived": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      },
+      "errors": ["PRODUCT_NOT_FOUND", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "add_to_cart",
+      "group": "write",
+      "description": "Add a product to the shopper's cart. Quantity is validated against available stock server-side and clamped; the response states the resulting line and any warnings, which must be relayed honestly.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "quantity"],
+        "properties": {
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "replacedExisting": { "type": "boolean", "default": false, "description": "Set true only when the shopper asked to change an existing line quantity." }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["cart", "line"],
+        "properties": {
+          "cart": { "type": "object", "properties": { "itemCount": { "type": "integer" }, "subtotalMinor": { "type": "integer" }, "currency": { "type": "string" } } },
+          "line": { "type": "object", "properties": { "productId": { "type": "string" }, "title": { "type": "string" }, "quantity": { "type": "integer" }, "unitPriceMinor": { "type": "integer" } } },
+          "warnings": { "type": "array", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" } } } }
+        }
+      },
+      "errors": ["INSUFFICIENT_STOCK", "PRODUCT_NOT_FOUND", "PRODUCT_ARCHIVED", "CART_LINE_LIMIT", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "update_cart_item",
+      "group": "write",
+      "description": "Set the absolute quantity of a cart line (0 removes it). Use only after the shopper states the new quantity.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "quantity"],
+        "properties": { "productId": { "type": "string" }, "quantity": { "type": "integer", "minimum": 0, "maximum": 10 } }
+      },
+      "outputSchema": { "type": "object", "required": ["cart"], "properties": { "cart": { "type": "object" }, "line": { "type": ["object", "null"] }, "warnings": { "type": "array" } } },
+      "errors": ["INSUFFICIENT_STOCK", "CART_ITEM_NOT_FOUND", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "remove_cart_item",
+      "group": "write",
+      "description": "Remove one line from the cart. REQUIRES a prior explicit confirmation from the shopper in the transcript; without it the tool returns NEEDS_CONFIRMATION and you must ask first.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId"],
+        "properties": { "productId": { "type": "string" } }
+      },
+      "outputSchema": { "type": "object", "required": ["cart"], "properties": { "cart": { "type": "object" }, "removed": { "type": "object" } } },
+      "errors": ["NEEDS_CONFIRMATION", "CART_ITEM_NOT_FOUND", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "clear_cart",
+      "group": "write",
+      "description": "Empty the cart. REQUIRES a prior explicit confirmation; otherwise returns NEEDS_CONFIRMATION.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["confirm"],
+        "properties": { "confirm": { "type": "boolean", "const": true } }
+      },
+      "outputSchema": { "type": "object", "required": ["cart"], "properties": { "cart": { "type": "object" }, "removedLines": { "type": "integer" } } },
+      "errors": ["NEEDS_CONFIRMATION", "CART_EMPTY", "VALIDATION_ERROR"]
+    },
+    {
+      "name": "view_cart",
+      "group": "read",
+      "description": "Read the current cart with live prices, quantities, stock availability per line and the subtotal. Never trust earlier cart summaries; call this when the cart may have changed.",
+      "inputSchema": { "type": "object", "additionalProperties": false, "properties": {} },
+      "outputSchema": {
+        "type": "object",
+        "required": ["cart"],
+        "properties": {
+          "cart": {
+            "type": "object",
+            "required": ["itemCount", "subtotalMinor", "currency", "items"],
+            "properties": {
+              "itemCount": { "type": "integer" },
+              "subtotalMinor": { "type": "integer" },
+              "currency": { "type": "string" },
+              "items": { "type": "array", "items": { "type": "object" } },
+              "warnings": { "type": "array" }
+            }
+          }
+        }
+      },
+      "errors": ["INTERNAL"]
+    },
+    {
+      "name": "get_quote_estimate",
+      "group": "read",
+      "description": "Compute a server-side price estimate for the current cart: subtotal, shipping, tax and total, plus warnings. It is an ESTIMATE and must be described as one; the authoritative total is shown on the checkout page.",
+      "inputSchema": { "type": "object", "additionalProperties": false, "properties": { "includeLineItems": { "type": "boolean", "default": false } } },
+      "outputSchema": {
+        "type": "object",
+        "required": ["subtotalMinor", "shippingMinor", "taxMinor", "totalMinor", "currency", "accurate"],
+        "properties": {
+          "subtotalMinor": { "type": "integer" },
+          "shippingMinor": { "type": "integer" },
+          "taxMinor": { "type": "integer" },
+          "totalMinor": { "type": "integer" },
+          "currency": { "type": "string" },
+          "taxRateBps": { "type": "integer" },
+          "accurate": { "type": "boolean", "const": false },
+          "shippingRuleApplied": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "object" } },
+          "lines": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "errors": ["CART_EMPTY", "ITEM_UNAVAILABLE", "INTERNAL"]
+    },
+    {
+      "name": "prepare_checkout",
+      "group": "sideEffecting",
+      "description": "Create a draft order from the current cart, reserve inventory and return the checkout URL. This DOES NOT create a PayPal order and DOES NOT charge anything. It requires confirm=true and a settled cart (no cart mutation in the immediately preceding turn), and the shopper must still press 'Approve & Pay' on the checkout page.",
+      "whenToUse": "Only when the shopper explicitly says they want to check out / buy / 'prepare my order'.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["confirm"],
+        "properties": {
+          "confirm": { "type": "boolean", "const": true, "description": "Explicit shopper intent to proceed to checkout." },
+          "contactEmail": { "type": "string", "format": "email", "description": "Optional; collected on the checkout page if absent. Never ask for addresses or card data in chat." }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["orderId", "orderNumber", "amounts", "requiresApproval", "approvalUrl"],
+        "properties": {
+          "orderId": { "type": "string" },
+          "orderNumber": { "type": "string" },
+          "amounts": {
+            "type": "object",
+            "properties": {
+              "subtotalMinor": { "type": "integer" },
+              "shippingMinor": { "type": "integer" },
+              "taxMinor": { "type": "integer" },
+              "totalMinor": { "type": "integer" },
+              "currency": { "type": "string" },
+              "display": { "type": "object" }
+            }
+          },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "requiresApproval": { "type": "boolean", "const": true },
+          "approvalUrl": { "type": "string" },
+          "warnings": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "errors": ["CART_EMPTY", "ITEM_UNAVAILABLE", "QUOTE_STALE", "HOLD_EXPIRED", "VALIDATION_ERROR", "INTERNAL"]
+    },
+    {
+      "name": "answer_policy",
+      "group": "read",
+      "description": "Return the canonical store policy text for a topic. Always use this instead of writing policy from memory. Versioned copy lives in packages/shared/src/policies.ts.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["topic"],
+        "properties": {
+          "topic": { "type": "string", "enum": ["shipping", "returns", "warranty", "tax", "payment", "privacy", "demo"] }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["topic", "text", "updatedAt"],
+        "properties": {
+          "topic": { "type": "string" },
+          "text": { "type": "string" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "source": { "type": "string", "const": "policies.ts" }
+        }
+      },
+      "errors": ["VALIDATION_ERROR"]
+    },
+    {
+      "name": "remember_preference",
+      "group": "write",
+      "description": "Record a soft preference the shopper expressed ('I really care about battery life') so later searches and comparisons weight it. Session-scoped only; never store personal data.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "value"],
+        "properties": {
+          "key": { "type": "string", "maxLength": 40 },
+          "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] },
+          "scope": { "type": "string", "enum": ["session"], "default": "session" }
+        }
+      },
+      "outputSchema": { "type": "object", "required": ["stored"], "properties": { "stored": { "type": "boolean" }, "preference": { "type": "object" } } },
+      "errors": ["VALIDATION_ERROR"]
+    },
+    {
+      "name": "set_requirement",
+      "group": "internal",
+      "description": "INTERNAL (forced tool, not offered to the model in open conversation): write the structured requirement extracted from the shopper's message. The orchestrator calls this after every new or changed request. Unknown attribute keys are dropped and reported in assumptions.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["revision", "quantity"],
+        "properties": {
+          "revision": { "type": "integer", "minimum": 1 },
+          "categorySlug": { "type": "string" },
+          "budgetMaxMinor": { "type": "integer" },
+          "useCase": { "type": "string", "maxLength": 200 },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "hardConstraints": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "required": ["kind"],
+              "properties": {
+                "kind": { "type": "string", "enum": ["attribute", "inStock", "warrantyMonths"] },
+                "key": { "type": "string" },
+                "op": { "type": "string", "enum": ["gte", "lte", "eq", "in"] },
+                "value": {},
+                "label": { "type": "string" }
+              }
+            }
+          },
+          "softPreferences": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "required": ["key", "direction"],
+              "properties": {
+                "key": { "type": "string" },
+                "direction": { "type": "string", "enum": ["higher_better", "lower_better"] },
+                "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+                "label": { "type": "string" }
+              }
+            }
+          },
+          "assumptions": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["requirement", "requirementRevision", "changed", "droppedConstraints"],
+        "properties": {
+          "requirement": { "type": "object" },
+          "requirementRevision": { "type": "integer" },
+          "changed": { "type": "boolean" },
+          "droppedConstraints": { "type": "array", "items": { "type": "string" } },
+          "assumptions": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "errors": ["VALIDATION_ERROR", "INVALID_ATTRIBUTE"]
+    }
+  ],
+  "forbiddenTools": [
+    "create_paypal_order",
+    "capture_payment",
+    "authorize_payment",
+    "refund",
+    "cancel_order",
+    "delete_account",
+    "send_email",
+    "read_other_user_data",
+    "http_request",
+    "shell",
+    "eval"
+  ],
+  "enforcement": {
+    "registry": "closed map; unknown tool names from the model produce an in-band error and a logged warning, never execution",
+    "validation": "zod schema per tool derived from inputSchema; strict objects; ids verified to exist and to be visible to the session",
+    "confirmationRules": [
+      { "tool": "remove_cart_item", "requires": "affirmative user message within the last 2 turns" },
+      { "tool": "clear_cart", "requires": "confirm=true AND affirmative user message" },
+      { "tool": "prepare_checkout", "requires": "confirm=true AND no cart mutation since the previous user turn AND shopper explicitly asked to check out" }
+    ],
+    "moneyRule": "no tool can move money; the only path to `paid` is POST /payments/{orderId}/capture, which requires the user's browser session and passes verifyCapture (docs/payments_paypal.md §4)"
+  }
+}

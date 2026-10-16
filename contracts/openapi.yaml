@@ -1,0 +1,881 @@
+openapi: 3.1.0
+info:
+  title: ShopPilot AI API
+  version: 1.0.0
+  description: |
+    Conversational commerce API. Companion to docs/api_spec.md (the human-readable source of truth),
+    docs/payments_paypal.md (money path) and contracts/agent_tools.json (LLM tools).
+    All money is an integer in minor units (USD cents) plus a currency code. All ids are 24-char hex strings.
+    In the default dev topology the browser talks only to the Next.js app, which proxies /api/* to this service.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local (proxied mode)
+  - url: https://api.shoppilot.example/api/v1
+    description: Hosted
+tags:
+  - name: Session
+  - name: Auth
+  - name: Catalogue
+  - name: Cart
+  - name: Checkout
+  - name: Orders
+  - name: Payments
+  - name: Chat
+  - name: Analytics
+  - name: Merchant
+security:
+  - cookieSession: []
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: httpOnly session cookie (guest or user). Access JWT is sent as a Bearer token when signed in.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    CsrfToken:
+      name: x-sp-csrf
+      in: header
+      required: true
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string, example: INSUFFICIENT_STOCK }
+            message: { type: string }
+            requestId: { type: string }
+            details: { type: object, additionalProperties: true }
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, description: Minor units (USD cents). }
+        currency: { type: string, enum: [USD] }
+        display: { type: string, description: Preformatted for display only; never use for math. }
+    Amounts:
+      type: object
+      required: [subtotalMinor, shippingMinor, taxMinor, totalMinor, currency]
+      properties:
+        subtotalMinor: { type: integer }
+        shippingMinor: { type: integer }
+        taxMinor: { type: integer }
+        totalMinor: { type: integer }
+        currency: { type: string, enum: [USD] }
+        taxRateBps: { type: integer, example: 825 }
+        display:
+          type: object
+          additionalProperties: { type: string }
+    Product:
+      type: object
+      required: [id, slug, title, brand, price, stock, availability]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        brand: { type: string }
+        merchant:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        category:
+          type: object
+          properties:
+            id: { type: string }
+            slug: { type: string }
+            name: { type: string }
+        price: { $ref: '#/components/schemas/Money' }
+        compareAtMinor: { type: integer }
+        stock: { type: integer, minimum: 0 }
+        availability: { type: string, enum: [in_stock, low_stock, out_of_stock] }
+        attributes: { type: object, additionalProperties: { type: [number, string, boolean] } }
+        specs:
+          type: array
+          items:
+            type: object
+            properties:
+              group: { type: string }
+              key: { type: string }
+              label: { type: string }
+              value: { type: string }
+        pros: { type: array, items: { type: string } }
+        cons: { type: array, items: { type: string } }
+        description: { type: string }
+        shortDescription: { type: string }
+        warrantyMonths: { type: integer }
+        returnDays: { type: integer }
+        rating:
+          type: object
+          properties:
+            avg: { type: number }
+            count: { type: integer }
+        images:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string }
+              alt: { type: string }
+        status: { type: string, enum: [draft, active, archived] }
+    CartItem:
+      type: object
+      required: [productId, title, quantity, unitPriceMinor, lineTotalMinor]
+      properties:
+        productId: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        brand: { type: string }
+        imageUrl: { type: string }
+        merchant:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        quantity: { type: integer, minimum: 1, maximum: 10 }
+        unitPriceMinor: { type: integer }
+        lineTotalMinor: { type: integer }
+        availableStock: { type: integer }
+        maxQuantity: { type: integer }
+        priceChangedFromMinor: { type: [integer, 'null'] }
+        addedAt: { type: string, format: date-time }
+    Cart:
+      type: object
+      required: [id, itemCount, subtotalMinor, currency, items]
+      properties:
+        id: { type: string }
+        itemCount: { type: integer }
+        subtotalMinor: { type: integer }
+        currency: { type: string, enum: [USD] }
+        display: { type: string }
+        items: { type: array, items: { $ref: '#/components/schemas/CartItem' } }
+        warnings: { type: array, items: { $ref: '#/components/schemas/QuoteWarning' } }
+    QuoteWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, enum: [PRICE_CHANGED, LOW_STOCK, ITEM_UNAVAILABLE, QTY_REDUCED] }
+        message: { type: string }
+        productId: { type: string }
+        fromMinor: { type: integer }
+        toMinor: { type: integer }
+    Quote:
+      type: object
+      required: [id, expiresAt, currency, lines, amounts, hash]
+      properties:
+        id: { type: string }
+        expiresAt: { type: string, format: date-time }
+        currency: { type: string, enum: [USD] }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: { type: string }
+              merchantId: { type: string }
+              title: { type: string }
+              quantity: { type: integer }
+              unitPriceMinor: { type: integer }
+              lineTotalMinor: { type: integer }
+              availableStock: { type: integer }
+        amounts: { $ref: '#/components/schemas/Amounts' }
+        shippingRuleApplied: { type: string, enum: [free_over_500, standard, small_order, oversized_surcharge] }
+        warnings: { type: array, items: { $ref: '#/components/schemas/QuoteWarning' } }
+        hash: { type: string }
+    OrderLine:
+      type: object
+      required: [productId, title, quantity, unitPriceMinor, lineTotalMinor]
+      properties:
+        productId: { type: string }
+        merchantId: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        imageUrl: { type: string }
+        brand: { type: string }
+        quantity: { type: integer }
+        unitPriceMinor: { type: integer }
+        lineTotalMinor: { type: integer }
+        currency: { type: string, enum: [USD] }
+    OrderStatus:
+      type: string
+      enum: [draft, awaiting_payment, payment_processing, paid, processing, shipped, delivered, cancelled, payment_failed, expired, refunded]
+    PaymentStatus:
+      type: string
+      enum: [none, created, approved, pending, captured, failed, cancelled, refunded]
+    Order:
+      type: object
+      required: [id, orderNumber, status, lines, amounts, payment]
+      properties:
+        id: { type: string }
+        orderNumber: { type: string, example: SP-2026-000123 }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        createdAt: { type: string, format: date-time }
+        paidAt: { type: [string, 'null'], format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        lines: { type: array, items: { $ref: '#/components/schemas/OrderLine' } }
+        amounts: { $ref: '#/components/schemas/Amounts' }
+        contact:
+          type: object
+          properties:
+            email: { type: string, format: email }
+            name: { type: string }
+        payment:
+          type: object
+          required: [provider, status, amountVerified]
+          properties:
+            provider: { type: string, enum: [paypal] }
+            status: { $ref: '#/components/schemas/PaymentStatus' }
+            paypalOrderId: { type: string }
+            paypalCaptureId: { type: string }
+            captureStatus: { type: string }
+            amountVerified: { type: boolean }
+            lastAttemptNo: { type: integer }
+            failureReason: { type: string }
+            capturedAt: { type: [string, 'null'], format: date-time }
+        timeline:
+          type: array
+          items:
+            type: object
+            properties:
+              at: { type: string, format: date-time }
+              event: { type: string }
+              actor: { type: string, enum: [system, user, merchant, paypal] }
+    SessionMe:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id: { type: string }
+            role: { type: string, enum: [guest, customer, merchant, admin] }
+            email: { type: string }
+        session:
+          type: object
+          properties:
+            id: { type: string }
+            kind: { type: string, enum: [guest, user] }
+            expiresAt: { type: string, format: date-time }
+        cart: { $ref: '#/components/schemas/Cart' }
+        chat:
+          type: object
+          properties:
+            requirement: { type: object }
+            requirementRevision: { type: integer }
+            lastCandidateProductIds: { type: array, items: { type: string } }
+    MerchantOverview:
+      type: object
+      properties:
+        revenueMinor: { type: integer }
+        paidOrders: { type: integer }
+        avgOrderValueMinor: { type: integer }
+        conversionRateBps: { type: integer }
+        lowStock: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        topProducts: { type: array, items: { type: object } }
+        recentOrders: { type: array, items: { $ref: '#/components/schemas/Order' } }
+    MerchantAnalytics:
+      type: object
+      properties:
+        funnel:
+          type: object
+          properties:
+            views: { type: integer }
+            cartAdds: { type: integer }
+            checkoutAttempts: { type: integer }
+            purchases: { type: integer }
+        rates:
+          type: object
+          additionalProperties: { type: integer }
+        timeseries:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              views: { type: integer }
+              cartAdds: { type: integer }
+              checkoutAttempts: { type: integer }
+              purchases: { type: integer }
+        paymentHealth:
+          type: object
+          properties:
+            attempts: { type: integer }
+            captured: { type: integer }
+            failed: { type: integer }
+            pending: { type: integer }
+paths:
+  /session/guest:
+    post:
+      tags: [Session]
+      summary: Create or return the visitor session
+      responses:
+        '200':
+          description: Session ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { type: object }
+                  session: { type: object }
+                  cart: { $ref: '#/components/schemas/Cart' }
+        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /session/me:
+    get:
+      tags: [Session]
+      summary: Current user, session, cart and chat requirement state
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { $ref: '#/components/schemas/SessionMe' } } }
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a customer and upgrade the guest session
+      security: [{ cookieSession: [] }, { bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10 }
+                displayName: { type: string }
+      responses:
+        '201':
+          description: Registered
+          content: { application/json: { schema: { type: object, properties: { user: { type: object }, tokens: { type: object }, cart: { $ref: '#/components/schemas/Cart' } } } } }
+        '400': { description: WEAK_PASSWORD / VALIDATION_ERROR, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: EMAIL_TAKEN, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in and merge the guest cart
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties: { email: { type: string, format: email }, password: { type: string } }
+      responses:
+        '200':
+          description: Signed in
+          content: { application/json: { schema: { type: object } } }
+        '401': { description: INVALID_CREDENTIALS, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate refresh token
+      responses:
+        '200': { description: Rotated, content: { application/json: { schema: { type: object } } } }
+        '401': { description: TOKEN_EXPIRED / TOKEN_REUSE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke refresh family and clear cookies
+      responses:
+        '204': { description: Logged out }
+  /products:
+    get:
+      tags: [Catalogue]
+      summary: Search and filter the catalogue
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string }, description: Category slug }
+        - { name: merchantId, in: query, schema: { type: string } }
+        - { name: minPriceMinor, in: query, schema: { type: integer } }
+        - { name: maxPriceMinor, in: query, schema: { type: integer } }
+        - { name: inStock, in: query, schema: { type: boolean } }
+        - { name: sort, in: query, schema: { type: string, enum: [relevance, price_asc, price_desc, rating, newest, stock_desc] } }
+        - { name: ramGb_gte, in: query, schema: { type: integer }, description: Example of a typed attribute filter (key_op). Only filterable attributes are accepted. }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Paginated products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+                  hasMore: { type: boolean }
+                  facets: { type: object }
+        '400': { description: UNFILTERABLE_ATTRIBUTE / INVALID_SORT / VALIDATION_ERROR, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /products/{slugOrId}:
+    get:
+      tags: [Catalogue]
+      summary: Product detail
+      parameters: [{ name: slugOrId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { product: { $ref: '#/components/schemas/Product' } } } } } }
+        '404': { description: PRODUCT_NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /categories:
+    get:
+      tags: [Catalogue]
+      summary: Category tree with attribute schemas
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object } } } } } } }
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Read the cart (server-recomputed prices)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { cart: { $ref: '#/components/schemas/Cart' } } } } } }
+    delete:
+      tags: [Cart]
+      summary: Clear the cart (requires confirm flag)
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      responses:
+        '200': { description: Cleared, content: { application/json: { schema: { type: object, properties: { cart: { $ref: '#/components/schemas/Cart' } } } } } }
+  /cart/items:
+    post:
+      tags: [Cart]
+      summary: Add a product to the cart
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, quantity]
+              properties:
+                productId: { type: string }
+                quantity: { type: integer, minimum: 1, maximum: 10 }
+                addedVia: { type: string, enum: [agent, card, product_page, cart] }
+      responses:
+        '200': { description: Cart with the new line, content: { application/json: { schema: { type: object, properties: { cart: { $ref: '#/components/schemas/Cart' } } } } } }
+        '409': { description: INSUFFICIENT_STOCK / PRODUCT_ARCHIVED / CART_LINE_LIMIT, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: PRODUCT_NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /cart/items/{productId}:
+    patch:
+      tags: [Cart]
+      summary: Set absolute line quantity (0 removes)
+      parameters:
+        - { name: productId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [quantity], properties: { quantity: { type: integer, minimum: 0, maximum: 10 } } } } }
+      responses:
+        '200': { description: Updated cart, content: { application/json: { schema: { type: object, properties: { cart: { $ref: '#/components/schemas/Cart' } } } } } }
+    delete:
+      tags: [Cart]
+      summary: Remove a line
+      parameters:
+        - { name: productId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { description: Updated cart, content: { application/json: { schema: { type: object, properties: { cart: { $ref: '#/components/schemas/Cart' } } } } } }
+  /checkout/quote:
+    post:
+      tags: [Checkout]
+      summary: Compute the authoritative quote for the current cart and create/extend soft holds
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { extendHolds: { type: boolean, default: true } } }
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quote: { $ref: '#/components/schemas/Quote' }
+                  holds: { type: array, items: { type: object } }
+        '409': { description: CART_EMPTY / ITEM_UNAVAILABLE / QUOTE_IN_PROGRESS, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /orders:
+    post:
+      tags: [Orders]
+      summary: Create the order (the user's explicit approval) and the PayPal order
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quoteId, quoteHash, contact]
+              properties:
+                quoteId: { type: string }
+                quoteHash: { type: string }
+                contact:
+                  type: object
+                  required: [email]
+                  properties:
+                    email: { type: string, format: email }
+                    name: { type: string }
+      responses:
+        '201':
+          description: Order created, awaiting payment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+                  payment: { type: object, properties: { paypalOrderId: { type: string }, clientId: { type: string }, currency: { type: string }, attemptNo: { type: integer } } }
+        '409': { description: QUOTE_STALE / ITEM_UNAVAILABLE / HOLD_EXPIRED / CART_EMPTY / PAYMENT_IN_PROGRESS, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '402': { description: PAYMENT_PROVIDER_ERROR, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    get:
+      tags: [Orders]
+      summary: List the caller's orders (customer or guest session)
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Order' } }, total: { type: integer } } } } } }
+  /orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: Read one order (owner, session owner, merchant of a line, or admin)
+      parameters: [{ name: orderId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+                  quotePreview: { $ref: '#/components/schemas/Quote' }
+        '404': { description: Not found or not visible to this caller, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /orders/{orderId}/cancel:
+    post:
+      tags: [Orders]
+      summary: Cancel a payable order and release its holds
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { description: Cancelled, content: { application/json: { schema: { type: object, properties: { order: { $ref: '#/components/schemas/Order' } } } } } }
+        '409': { description: INVALID_STATE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /payments/{orderId}/capture:
+    post:
+      tags: [Payments]
+      summary: Capture and verify the PayPal payment (the only path to a paid order)
+      description: |
+        Idempotent. Verifies V1..V7 from docs/payments_paypal.md §4 before any state change.
+        Failure responses never mark the order paid.
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [paypalOrderId], properties: { paypalOrderId: { type: string } } }
+      responses:
+        '200':
+          description: Captured and verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+                  payment:
+                    type: object
+                    properties:
+                      status: { type: string }
+                      captureId: { type: string }
+                      capturedAt: { type: string, format: date-time }
+                      amountMinor: { type: integer }
+                      currency: { type: string }
+                      amountVerified: { type: boolean }
+                      payerEmailHash: { type: string }
+                  receipt: { type: object }
+        '202': { description: PAYMENT_PENDING (e-cheque / bank review), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '402': { description: PAYMENT_DECLINED / PAYMENT_INSUFFICIENT_FUNDS, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: PAYMENT_IN_PROGRESS / ORDER_ALREADY_CAPTURED / PAYMENT_VERIFICATION_FAILED / HOLD_EXPIRED / QUOTE_STALE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: PAYMENT_PROVIDER_UNAVAILABLE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /payments/{orderId}/retry:
+    post:
+      tags: [Payments]
+      summary: Start a new payment attempt for a failed order
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '201': { description: New attempt, content: { application/json: { schema: { type: object, properties: { payment: { type: object } } } } } }
+        '409': { description: QUOTE_STALE / PAYMENT_ATTEMPT_LIMIT / INVALID_STATE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /payments/{orderId}/status:
+    get:
+      tags: [Payments]
+      summary: Poll payment status while pending or processing
+      parameters: [{ name: orderId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { orderStatus: { $ref: '#/components/schemas/OrderStatus' }, paymentStatus: { $ref: '#/components/schemas/PaymentStatus' }, attemptNo: { type: integer }, captureId: { type: string }, failureReason: { type: string } } } } } }
+  /webhooks/paypal:
+    post:
+      tags: [Payments]
+      summary: PayPal webhook receiver (signature verified, deduplicated)
+      security: []
+      responses:
+        '200': { description: Received (always 200 so PayPal stops retrying), content: { application/json: { schema: { type: object, properties: { received: { type: boolean }, deduplicated: { type: boolean } } } } } }
+  /chat/sessions:
+    post:
+      tags: [Chat]
+      summary: Create or return the chat session with its requirement
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      responses:
+        '201': { description: OK, content: { application/json: { schema: { type: object, properties: { sessionId: { type: string }, requirement: { type: object }, requirementRevision: { type: integer } } } } } }
+  /chat/sessions/{sessionId}/messages:
+    get:
+      tags: [Chat]
+      summary: Transcript page for rendering history
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+        - { name: before, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object } } } } } } }
+  /chat/sessions/{sessionId}/requirement:
+    patch:
+      tags: [Chat]
+      summary: Add/remove/set a requirement constraint (chip editing) and re-run the search
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [op, constraint]
+              properties:
+                op: { type: string, enum: [add, remove, set] }
+                constraint: { type: object }
+      responses:
+        '200': { description: Updated requirement and refreshed candidates, content: { application/json: { schema: { type: object, properties: { requirement: { type: object }, requirementRevision: { type: integer }, changed: { type: boolean } } } } } }
+  /chat/stream:
+    post:
+      tags: [Chat]
+      summary: Send a message and stream the agent's response (Server-Sent Events)
+      description: |
+        Content-Type of the response is text/event-stream. Frame order and payloads are specified in
+        docs/api_spec.md §7: message.start, tool.activity, ui.component, message.delta, message.end,
+        cart.updated, error. Aborting the connection stops generation and persists the partial message.
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, message]
+              properties:
+                sessionId: { type: string }
+                message: { type: string, maxLength: 4000 }
+                clientMessageId: { type: string }
+                attachedProductIds: { type: array, maxItems: 10, items: { type: string } }
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '429': { description: RATE_LIMITED, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: LLM_UNAVAILABLE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /analytics/events:
+    post:
+      tags: [Analytics]
+      summary: Client analytics beacon (fire and forget, always 204 unless malformed JSON)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [eventId, name, ts]
+                    properties:
+                      eventId: { type: string }
+                      name: { type: string }
+                      ts: { type: string, format: date-time }
+                      props: { type: object, additionalProperties: true }
+      responses:
+        '204': { description: Accepted (invalid events dropped silently) }
+  /merchant/overview:
+    get:
+      tags: [Merchant]
+      summary: Merchant overview tiles (30d default)
+      security: [{ cookieSession: [] }, { bearerAuth: [] }]
+      parameters: [{ name: range, in: query, schema: { type: string, enum: [7d, 30d, custom], default: 30d } }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MerchantOverview' } } } }
+        '403': { description: FORBIDDEN, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /merchant/products:
+    get:
+      tags: [Merchant]
+      summary: Merchant product list
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [draft, active, archived] } }
+        - { name: q, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Product' } }, total: { type: integer } } } } } }
+    post:
+      tags: [Merchant]
+      summary: Create a product
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+  /merchant/products/{id}:
+    patch:
+      tags: [Merchant]
+      summary: Update price, stock, status or attributes (writes price history)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priceMinor: { type: integer }
+                stock: { type: integer, minimum: 0 }
+                status: { type: string, enum: [draft, active, archived] }
+                attributes: { type: object }
+      responses:
+        '200': { description: Updated product, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: Not found in this merchant's scope, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      tags: [Merchant]
+      summary: Archive a product (soft delete)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '204': { description: Archived }
+  /merchant/orders:
+    get:
+      tags: [Merchant]
+      summary: Merchant order list (tenant-scoped)
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
+        - { name: paymentStatus, in: query, schema: { $ref: '#/components/schemas/PaymentStatus' } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Order' } }, total: { type: integer } } } } } }
+  /merchant/orders/{orderId}:
+    patch:
+      tags: [Merchant]
+      summary: Merchant order action (mark shipped, cancel while payable)
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [mark_shipped, cancel] }
+                tracking:
+                  type: object
+                  properties: { carrier: { type: string }, number: { type: string } }
+      responses:
+        '200': { description: Updated order, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+        '409': { description: INVALID_STATE, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /merchant/categories:
+    get:
+      tags: [Merchant]
+      summary: List categories with attribute schemas
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object } } } } } } }
+    post:
+      tags: [Merchant]
+      summary: Create a category
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { type: object } } } }
+  /merchant/analytics:
+    get:
+      tags: [Merchant]
+      summary: Funnel, timeseries, product performance and payment health
+      parameters:
+        - { name: range, in: query, schema: { type: string, enum: [7d, 30d, custom], default: 7d } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MerchantAnalytics' } } } }
+  /admin/orders/{orderId}/reconcile:
+    post:
+      tags: [Payments]
+      summary: Force reconciliation against PayPal (admin only)
+      security: [{ cookieSession: [] }, { bearerAuth: [] }]
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { applied: { type: boolean }, order: { $ref: '#/components/schemas/Order' } } } } } }
+        '403': { description: FORBIDDEN, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }

@@ -1,0 +1,308 @@
+/**
+ * PayPal gateway: Orders v2 over HTTPS in `sandbox` mode, plus an in-process `simulator` used by the
+ * default demo (and by tests) so the whole payment path is runnable without credentials.
+ * Docs: ../docs/payments_paypal.md §2–§4
+ *
+ * Both implementations return exactly the shapes the payment service verifies, so verification code
+ * is identical in both modes.
+ */
+import env, { paypalBaseUrl } from '../config/env.mjs';
+import logger from '../lib/logger.mjs';
+import { toPayPalAmount } from '../lib/money.mjs';
+import { objectId } from '../lib/crypto.mjs';
+
+export class PaypalError extends Error {
+  constructor(issue, message, { httpStatus = 422, debugId, raw } = {}) {
+    super(message ?? issue);
+    this.issue = issue;
+    this.httpStatus = httpStatus;
+    this.debugId = debugId;
+    this.raw = raw;
+  }
+}
+
+const simulatedOutcomes = {
+  approve: { finalStatus: 'COMPLETED', captureStatus: 'COMPLETED' },
+  decline: { finalStatus: 'DECLINED', captureStatus: 'DECLINED', issue: 'INSTRUMENT_DECLINED' },
+  insufficient_funds: { finalStatus: 'DECLINED', captureStatus: 'DECLINED', issue: 'INSUFFICIENT_FUNDS' },
+  pending: { finalStatus: 'PENDING', captureStatus: 'PENDING' },
+  amount_mismatch: { finalStatus: 'COMPLETED', captureStatus: 'COMPLETED', mutateAmount: true },
+  error: { throw: 'PAYMENT_PROVIDER_UNAVAILABLE' }
+};
+
+/** ── Simulator ───────────────────────────────────────────────────────────── */
+export class PaypalSimulator {
+  constructor() {
+    this.orders = new Map();
+    this.captures = new Map();
+    this.webhookEvents = [];
+    this.mode = 'simulator';
+  }
+
+  async createOrder({ order, requestId, returnUrl, cancelUrl }) {
+    const existing = [...this.orders.values()].find((o) => o.requestId === requestId);
+    if (existing) return { id: existing.id, status: existing.status };
+
+    const id = `SIM-${objectId().toUpperCase().slice(0, 12)}`;
+    const total = order.amounts.totalMinor;
+    const created = {
+      id,
+      requestId,
+      status: 'CREATED',
+      intent: 'CAPTURE',
+      create_time: new Date().toISOString(),
+      returnUrl,
+      cancelUrl,
+      purchase_units: [
+        {
+          custom_id: order.orderNumber,
+          invoice_id: order.orderNumber,
+          amount: {
+            currency_code: order.amounts.currency,
+            value: toPayPalAmount(total),
+            breakdown: {
+              item_total: { currency_code: 'USD', value: toPayPalAmount(order.amounts.subtotalMinor) },
+              tax_total: { currency_code: 'USD', value: toPayPalAmount(order.amounts.taxMinor) },
+              shipping: { currency_code: 'USD', value: toPayPalAmount(order.amounts.shippingMinor) }
+            }
+          },
+          items: order.lines.map((line) => ({
+            name: line.title.slice(0, 127),
+            unit_amount: { currency_code: 'USD', value: toPayPalAmount(line.unitPriceMinor) },
+            quantity: String(line.quantity),
+            category: 'PHYSICAL_GOODS',
+            sku: line.productId
+          }))
+        }
+      ],
+      orderRef: order._id
+    };
+    this.orders.set(id, created);
+    logger.info('paypal.simulator.order_created', { paypalOrderId: id, orderNumber: order.orderNumber, requestId });
+    return { id, status: created.status };
+  }
+
+  async getOrder(paypalOrderId) {
+    const order = this.orders.get(paypalOrderId);
+    if (!order) throw new PaypalError('RESOURCE_NOT_FOUND', 'Order not found', { httpStatus: 404 });
+    return order;
+  }
+
+  async captureOrder(paypalOrderId, { requestId, outcome = 'approve' } = {}) {
+    const order = this.orders.get(paypalOrderId);
+    if (!order) throw new PaypalError('RESOURCE_NOT_FOUND', 'Order not found', { httpStatus: 404 });
+    const captured = this.captures.get(order.id);
+    if (captured) {
+      throw new PaypalError('ORDER_ALREADY_CAPTURED', 'Order already captured', { httpStatus: 422, raw: captured });
+    }
+    const behaviour = simulatedOutcomes[outcome] ?? simulatedOutcomes.approve;
+    if (behaviour.throw) throw new PaypalError(behaviour.throw, 'PayPal is temporarily unavailable', { httpStatus: 503 });
+    if (behaviour.issue) {
+      throw new PaypalError(behaviour.issue, 'The payment was declined', { httpStatus: 422 });
+    }
+
+    order.status = behaviour.finalStatus === 'COMPLETED' ? 'COMPLETED' : 'APPROVED';
+    const unit = order.purchase_units[0];
+    const amount = behaviour.mutateAmount
+      ? { currency_code: 'USD', value: toPayPalAmount(Number(unit.amount.value.replace('.', '')) - 1) }
+      : unit.amount;
+
+    const capture = {
+      id: `SIMCAP-${objectId().toUpperCase().slice(0, 12)}`,
+      status: behaviour.captureStatus,
+      amount: { currency_code: amount.currency_code, value: behaviour.mutateAmount ? '1.00' : amount.value },
+      create_time: new Date().toISOString(),
+      final_capture: true,
+      custom_id: unit.custom_id,
+      invoice_id: unit.invoice_id,
+      requestId
+    };
+    if (behaviour.captureStatus === 'COMPLETED') {
+      this.captures.set(order.id, capture);
+      order.status = 'COMPLETED';
+    }
+    unit.payments = { captures: [capture] };
+    logger.info('paypal.simulator.capture', { paypalOrderId, captureId: capture.id, status: capture.status, outcome });
+
+    return {
+      id: order.id,
+      status: order.status,
+      purchase_units: order.purchase_units,
+      payer: { payer_id: 'SIMPAYER', email_address: 'sandbox-buyer@example.com', name: { given_name: 'Sandbox', surname: 'Buyer' } }
+    };
+  }
+
+  async voidOrder(paypalOrderId) {
+    const order = this.orders.get(paypalOrderId);
+    if (!order) return { status: 'NOT_FOUND' };
+    if (this.captures.has(paypalOrderId)) return { status: 'COMPLETED' };
+    order.status = 'VOIDED';
+    return { status: 'VOIDED' };
+  }
+
+  async verifyWebhook({ headers, body }) {
+    // The simulator signs nothing; real verification lives in the sandbox implementation below.
+    return { verified: true, event: body };
+  }
+
+  /** Test/demo helper: build a webhook event as PayPal would send it. */
+  buildCaptureCompletedEvent(order) {
+    const capture = [...this.captures.entries()].find(([id]) => this.orders.get(id)?.orderRef === order._id);
+    if (!capture) return null;
+    const [paypalOrderId, captureObj] = capture;
+    return {
+      id: `WH-${objectId().toUpperCase().slice(0, 12)}`,
+      event_type: 'PAYMENT.CAPTURE.COMPLETED',
+      resource_type: 'capture',
+      create_time: new Date().toISOString(),
+      resource: {
+        id: captureObj.id,
+        status: captureObj.status,
+        amount: captureObj.amount,
+        custom_id: captureObj.custom_id,
+        invoice_id: captureObj.invoice_id,
+        supplementary_data: { related_ids: { order_id: paypalOrderId } }
+      }
+    };
+  }
+}
+
+/** ── Real sandbox (Orders v2) ────────────────────────────────────────────── */
+export class PaypalSandbox {
+  constructor() {
+    this.mode = 'sandbox';
+    this.token = null;
+    this.tokenExpiresAt = 0;
+  }
+
+  async accessToken() {
+    if (this.token && Date.now() < this.tokenExpiresAt) return this.token;
+    const auth = Buffer.from(`${env.paypalClientId}:${env.paypalClientSecret}`).toString('base64');
+    const res = await fetch(`${paypalBaseUrl}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'grant_type=client_credentials',
+      signal: AbortSignal.timeout(env.paypalTimeoutMs)
+    });
+    if (!res.ok) throw new PaypalError('AUTHENTICATION_FAILURE', `PayPal auth failed (${res.status})`, { httpStatus: 502 });
+    const data = await res.json();
+    this.token = data.access_token;
+    this.tokenExpiresAt = Date.now() + Math.max(0, (data.expires_in - 60) * 1000);
+    return this.token;
+  }
+
+  async request(path, { method = 'GET', body, requestId, retries = 2 } = {}) {
+    const token = await this.accessToken();
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        const res = await fetch(`${paypalBaseUrl}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+            ...(requestId ? { 'PayPal-Request-Id': requestId } : {})
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(env.paypalTimeoutMs)
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) {
+          const issue = data?.details?.[0]?.issue ?? data?.name ?? `HTTP_${res.status}`;
+          const retryable = res.status >= 500 || res.status === 429;
+          if (retryable && attempt < retries) {
+            await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
+            continue;
+          }
+          throw new PaypalError(issue, data?.message ?? `PayPal error ${res.status}`, { httpStatus: res.status, debugId: data?.debug_id, raw: data });
+        }
+        return data;
+      } catch (err) {
+        if (err instanceof PaypalError) throw err;
+        if (attempt === retries) throw new PaypalError('NETWORK', `PayPal unreachable: ${err.message}`, { httpStatus: 503 });
+        await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
+      }
+    }
+    throw new PaypalError('UNKNOWN', 'PayPal request failed', { httpStatus: 502 });
+  }
+
+  async createOrder({ order, requestId }) {
+    const payload = {
+      intent: 'CAPTURE',
+      purchase_units: [
+        {
+          custom_id: order.orderNumber,
+          invoice_id: order.orderNumber,
+          description: `ShopPilot order ${order.orderNumber}`.slice(0, 127),
+          amount: {
+            currency_code: order.amounts.currency,
+            value: toPayPalAmount(order.amounts.totalMinor),
+            breakdown: {
+              item_total: { currency_code: 'USD', value: toPayPalAmount(order.amounts.subtotalMinor) },
+              tax_total: { currency_code: 'USD', value: toPayPalAmount(order.amounts.taxMinor) },
+              shipping: { currency_code: 'USD', value: toPayPalAmount(order.amounts.shippingMinor) }
+            }
+          },
+          items: order.lines.map((line) => ({
+            name: line.title.slice(0, 127),
+            quantity: String(line.quantity),
+            unit_amount: { currency_code: 'USD', value: toPayPalAmount(line.unitPriceMinor) },
+            category: 'PHYSICAL_GOODS',
+            sku: line.productId
+          }))
+        }
+      ],
+      application_context: { brand_name: 'ShopPilot AI (demo)', shipping_preference: 'GET_FROM_FILE', user_action: 'PAY_NOW' }
+    };
+    // Guard: PayPal rejects inconsistent breakdowns (payments_paypal.md §3.2).
+    const sum = order.amounts.subtotalMinor + order.amounts.shippingMinor + order.amounts.taxMinor;
+    if (sum !== order.amounts.totalMinor) throw new PaypalError('INTERNAL_AMOUNT_BUILDER', 'Amount breakdown does not sum to the total', { httpStatus: 500 });
+    const data = await this.request('/v2/checkout/orders', { method: 'POST', body: payload, requestId });
+    return { id: data.id, status: data.status };
+  }
+
+  async getOrder(paypalOrderId) {
+    return this.request(`/v2/checkout/orders/${paypalOrderId}`);
+  }
+
+  async captureOrder(paypalOrderId, { requestId } = {}) {
+    return this.request(`/v2/checkout/orders/${paypalOrderId}/capture`, { method: 'POST', body: {}, requestId });
+  }
+
+  async voidOrder(paypalOrderId) {
+    try {
+      return await this.request(`/v2/checkout/orders/${paypalOrderId}/void`, { method: 'POST', requestId: `pp-void-${paypalOrderId}` });
+    } catch (err) {
+      logger.warn('paypal.void.failed', { paypalOrderId, issue: err.issue });
+      return { status: 'FAILED' };
+    }
+  }
+
+  async verifyWebhook({ headers, body }) {
+    if (!env.paypalWebhookId) return { verified: false, reason: 'no_webhook_id' };
+    const data = await this.request('/v1/notifications/verify-webhook-signature', {
+      method: 'POST',
+      body: {
+        auth_algo: headers['paypal-auth-algo'],
+        cert_url: headers['paypal-cert-url'],
+        transmission_id: headers['paypal-transmission-id'],
+        transmission_sig: headers['paypal-transmission-sig'],
+        transmission_time: headers['paypal-transmission-time'],
+        webhook_id: env.paypalWebhookId,
+        webhook_event: body
+      }
+    });
+    return { verified: data.verification_status === 'SUCCESS', raw: data };
+  }
+}
+
+export function createPaypalGateway() {
+  if (env.paypalMode === 'simulator') {
+    logger.warn('paypal.mode', { mode: 'simulator', note: 'No real PayPal calls — set PAYPAL_MODE=sandbox with credentials for live sandbox testing.' });
+    return new PaypalSimulator();
+  }
+  return new PaypalSandbox();
+}
+
+export default createPaypalGateway;

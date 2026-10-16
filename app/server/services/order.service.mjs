@@ -1,0 +1,252 @@
+/**
+ * Order service: creation from a quote, immutable snapshots, the state machine guard, cancellation,
+ * order history and merchant-side transitions.
+ * Docs: ../docs/data_model.md §2.10 + §3, ../docs/api_spec.md §5–6
+ */
+import { ApiError } from '../lib/errors.mjs';
+import { CANCELLABLE_STATUSES, ORDER_STATUS, assertTransition, canTransition } from '../domain/orderState.mjs';
+import { formatMoney } from '../lib/money.mjs';
+import env from '../config/env.mjs';
+
+export class OrderService {
+  constructor(store, { catalogue, quote, inventory, cart, analytics, payment }) {
+    this.store = store;
+    this.catalogue = catalogue;
+    this.quote = quote;
+    this.inventory = inventory;
+    this.cart = cart;
+    this.analytics = analytics;
+    this.payment = payment;
+  }
+
+  get orders() {
+    return this.store.collection('orders');
+  }
+
+  /**
+   * Create the order the customer explicitly approved. Recomputes the quote first: if the money
+   * moved, it refuses with QUOTE_STALE and a diff (never silently charges a new amount).
+   */
+  async createFromQuote({ quoteId, quoteHash, contact, auth }) {
+    const quoteDoc = this.quote.byId(quoteId);
+    if (!quoteDoc) throw new ApiError('QUOTE_STALE', 'That quote has expired. Review your cart and try again.');
+    if (quoteDoc.sessionId !== auth.session._id) throw new ApiError('FORBIDDEN', 'That quote belongs to another session.');
+
+    const ownerCart = this.cart.getOrCreate({ sessionId: auth.session._id, userId: auth.user._id });
+    // The holds backing this quote belong to this cart — excluding them is what stops a valid
+    // checkout from reporting its own reservation as OUT_OF_STOCK.
+    const fresh = this.quote.recomputeForLines(quoteDoc.lines, { excludeCartId: ownerCart._id, excludeOrderId: quoteDoc.orderId ?? null });
+    if (fresh.unavailableLines.length) {
+      throw new ApiError('ITEM_UNAVAILABLE', 'Some items are no longer available.', {
+        details: { items: fresh.unavailableLines.map((l) => ({ productId: l.productId, title: l.title, reason: 'OUT_OF_STOCK' })) }
+      });
+    }
+    if (quoteHash && quoteDoc.hash !== quoteHash) {
+      throw new ApiError('QUOTE_STALE', 'Your quote changed. Please review the new total.', {
+        details: { diff: this.quote.diff(quoteDoc, fresh) }
+      });
+    }
+    if (quoteDoc.hash !== fresh.hash) {
+      throw new ApiError('QUOTE_STALE', 'Prices changed since you reviewed this order.', { details: { diff: this.quote.diff(quoteDoc, fresh) } });
+    }
+    if (!contact?.email) throw new ApiError('VALIDATION_ERROR', 'An email address is required to place the order.');
+
+    const cartDoc = ownerCart;
+    const merchantIds = [...new Set(fresh.lines.map((l) => l.merchantId))];
+    const order = this.orders.insert({
+      orderNumber: this.store.nextOrderNumber(),
+      userId: auth.user._id,
+      sessionId: auth.session._id,
+      merchantIds,
+      status: ORDER_STATUS.AWAITING_PAYMENT,
+      lines: fresh.lines.map((line) => {
+        const product = this.catalogue.getRaw(line.productId);
+        return {
+          productId: line.productId,
+          merchantId: line.merchantId,
+          title: product.title,
+          slug: product.slug,
+          imageUrl: product.images?.[0]?.url,
+          brand: product.brand,
+          unitPriceMinor: line.unitPriceMinor,
+          quantity: line.quantity,
+          lineTotalMinor: line.lineTotalMinor,
+          currency: 'USD',
+          attributesSnapshot: product.attributes
+        };
+      }),
+      amounts: {
+        currency: 'USD',
+        subtotalMinor: fresh.subtotalMinor,
+        shippingMinor: fresh.shippingMinor,
+        taxMinor: fresh.taxMinor,
+        totalMinor: fresh.totalMinor,
+        taxRateBps: env.taxRateBps
+      },
+      quoteId: quoteDoc._id,
+      quoteHash: quoteDoc.hash,
+      contact: { email: String(contact.email).toLowerCase(), name: contact.name },
+      payment: { provider: 'paypal', status: 'none', amountVerified: false, lastAttemptNo: 0 },
+      timeline: [{ at: new Date().toISOString(), event: 'order_created', actor: 'user' }],
+      expiresAt: new Date(Date.now() + env.quoteTtlMinutes * 60_000).toISOString()
+    });
+
+    this.quote.quotes.updateOne({ _id: quoteDoc._id }, { status: 'consumed', orderId: order._id });
+    this.inventory.claimForOrder(cartDoc._id, order._id);
+    this.analytics.emit('checkout_started', {
+      sessionId: auth.session._id,
+      userId: auth.user._id,
+      merchantId: merchantIds[0],
+      orderId: order._id,
+      props: { orderId: order._id, orderNumber: order.orderNumber, itemCount: order.lines.length, totalMinor: order.amounts.totalMinor, attemptNo: 1, fromSurface: 'checkout' }
+    });
+    return order;
+  }
+
+  toDto(order) {
+    const merchants = [...new Set(order.lines.map((l) => l.merchantId))]
+      .map((id) => this.catalogue.merchant(id))
+      .filter(Boolean)
+      .map((m) => ({ id: m._id, name: m.name, supportEmail: m.supportEmail, policies: m.policies }));
+    return {
+      id: order._id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      paidAt: order.paidAt ?? null,
+      expiresAt: order.expiresAt ?? null,
+      lines: order.lines.map((l) => ({ ...l, unitPriceDisplay: formatMoney(l.unitPriceMinor), lineTotalDisplay: formatMoney(l.lineTotalMinor) })),
+      merchants,
+      amounts: {
+        ...order.amounts,
+        display: {
+          subtotal: formatMoney(order.amounts.subtotalMinor),
+          shipping: formatMoney(order.amounts.shippingMinor),
+          tax: formatMoney(order.amounts.taxMinor),
+          total: formatMoney(order.amounts.totalMinor)
+        }
+      },
+      contact: { email: order.contact?.email, name: order.contact?.name },
+      shippingAddress: order.shippingAddress ?? null,
+      payment: order.payment,
+      timeline: order.timeline ?? []
+    };
+  }
+
+  find({ orderId }) {
+    const order = this.orders.findOne({ _id: orderId });
+    if (!order) throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    return order;
+  }
+
+  /** Owner, session owner, merchant of any line, or admin. Cross-tenant reads 404 (no existence leak). */
+  findAuthorised({ orderId, auth }) {
+    const order = this.orders.findOne({ _id: orderId });
+    if (!order) throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    const user = auth.user;
+    if (!user) throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    const isOwner = order.userId === user._id;
+    const isSessionOwner = order.sessionId === auth.session?._id;
+    const isMerchant = user.role === 'merchant' && order.lines.some((l) => l.merchantId === user.merchantId);
+    const isAdmin = user.role === 'admin';
+    if (!isOwner && !isSessionOwner && !isMerchant && !isAdmin) throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    return order;
+  }
+
+  listForCustomer(auth, { status, page = 1, limit = 20 } = {}) {
+    const user = auth.user;
+    const filter = user.role === 'guest' ? { sessionId: auth.session._id } : { userId: user._id };
+    if (status) filter.status = status;
+    const rows = this.orders.find(filter, { sort: { createdAt: -1 } });
+    const start = (Math.max(1, page) - 1) * limit;
+    return { items: rows.slice(start, start + limit).map((o) => this.toDto(o)), total: rows.length, page, limit, hasMore: start + limit < rows.length };
+  }
+
+  listForMerchant(merchantId, { status, paymentStatus, q, page = 1, limit = 20 } = {}) {
+    let rows = this.orders.find({ merchantIds: merchantId }, { sort: { createdAt: -1 } });
+    if (status) rows = rows.filter((o) => o.status === status);
+    if (paymentStatus) rows = rows.filter((o) => o.payment?.status === paymentStatus);
+    if (q) {
+      const needle = String(q).toLowerCase();
+      rows = rows.filter((o) => o.orderNumber.toLowerCase().includes(needle) || (o.contact?.email ?? '').toLowerCase().includes(needle));
+    }
+    const total = rows.length;
+    const start = (Math.max(1, page) - 1) * limit;
+    return { items: rows.slice(start, start + limit).map((o) => this.toDto(o)), total, page, limit, hasMore: start + limit < total };
+  }
+
+  timeline(orderId, event, actor = 'system', meta) {
+    const order = this.find({ orderId });
+    const entry = { at: new Date().toISOString(), event, actor, ...(meta ? { meta } : {}) };
+    return this.orders.updateOne({ _id: order._id }, { $push: { timeline: entry } });
+  }
+
+  /** Only whitelisted transitions; payment_failed → paid is impossible by construction. */
+  transition(orderId, to, { actor = 'system', meta } = {}) {
+    const order = this.find({ orderId });
+    assertTransition(order.status, to);
+    const patch = { status: to };
+    if (to === ORDER_STATUS.PAID) patch.paidAt = new Date().toISOString();
+    if (to === ORDER_STATUS.CANCELLED) patch.cancelledAt = new Date().toISOString();
+    if (to === ORDER_STATUS.SHIPPED) patch.shippedAt = new Date().toISOString();
+    if (to === ORDER_STATUS.DELIVERED) patch.deliveredAt = new Date().toISOString();
+    const updated = this.orders.findOneAndUpdate({ _id: orderId }, { ...patch, $push: { timeline: { at: new Date().toISOString(), event: `status_${to}`, actor, ...(meta ? { meta } : {}) } } });
+    return updated;
+  }
+
+  cancel(orderId, { auth, actor = 'user' } = {}) {
+    const order = auth ? this.findAuthorised({ orderId, auth }) : this.find({ orderId });
+    if (!CANCELLABLE_STATUSES.includes(order.status)) {
+      throw new ApiError('INVALID_STATE', `An order that is "${order.status}" cannot be cancelled.`);
+    }
+    this.inventory.release({ orderId, reason: 'order_cancelled' });
+    if (order.payment?.paypalOrderId) {
+      this.payment?.voidPayPalOrder?.(order.payment.paypalOrderId);
+    }
+    const updated = this.transition(orderId, ORDER_STATUS.CANCELLED, { actor, meta: { previousStatus: order.status } });
+    this.analytics.emit('order_cancelled', { sessionId: order.sessionId, userId: order.userId, orderId, props: { orderId, previousStatus: order.status } });
+    return updated;
+  }
+
+  markShipped(orderId, merchantId, tracking) {
+    const order = this.find({ orderId });
+    if (!order.lines.some((l) => l.merchantId === merchantId)) throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    const from = order.status === ORDER_STATUS.PAID ? ORDER_STATUS.PROCESSING : order.status;
+    if (from !== order.status) this.transition(orderId, ORDER_STATUS.PROCESSING, { actor: 'merchant' });
+    return this.transition(orderId, ORDER_STATUS.SHIPPED, { actor: 'merchant', meta: tracking ? { tracking } : undefined });
+  }
+
+  canPay(order) {
+    return canTransition(order.status, ORDER_STATUS.PAYMENT_PROCESSING) || order.status === ORDER_STATUS.PAYMENT_PROCESSING;
+  }
+
+  revenue({ merchantId, from, to }) {
+    const rows = this.orders.find({
+      status: { $in: [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED] },
+      ...(merchantId ? { merchantIds: merchantId } : {}),
+      ...(from ? { paidAt: { $gte: from } } : {})
+    });
+    const revenueMinor = rows.reduce((sum, o) => sum + o.amounts.totalMinor, 0);
+    return { revenueMinor, paidOrders: rows.length, avgOrderValueMinor: rows.length ? Math.round(revenueMinor / rows.length) : 0 };
+  }
+
+  overview(merchantId) {
+    const revenue = this.revenue({ merchantId });
+    const allOrders = this.orders.find({ merchantIds: merchantId }, { sort: { createdAt: -1 } });
+    const checkoutAttempts = this.analytics.count('checkout_started', { merchantId });
+    const purchases = this.analytics.count('payment_captured', { merchantId });
+    return {
+      ...revenue,
+      currency: 'USD',
+      revenueDisplay: formatMoney(revenue.revenueMinor),
+      avgOrderValueDisplay: formatMoney(revenue.avgOrderValueMinor),
+      conversionRateBps: checkoutAttempts ? Math.round((purchases / checkoutAttempts) * 10000) : 0,
+      lowStock: this.catalogue.lowStock(3, merchantId),
+      recentOrders: allOrders.slice(0, 5).map((o) => this.toDto(o)),
+      totalOrders: allOrders.length
+    };
+  }
+}
+
+export default OrderService;

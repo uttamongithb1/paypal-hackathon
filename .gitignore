@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# local state — the store is created by `./dev-up.sh` / `node scripts/seed.mjs`
+app/.data/
+app/.data-test/
+*.log
+
+# secrets — never commit real credentials
+.env
+.env.local
+app/.env
+app/.env.local
+
+# build / coverage / editor
+dist/
+coverage/
+.DS_Store
+.idea/
+.vscode/

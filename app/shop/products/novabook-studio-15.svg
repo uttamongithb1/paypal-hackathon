@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200" role="img" aria-label="NovaBook Studio 15">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="hsl(284 62% 92%)"/>
+      <stop offset="100%" stop-color="hsl(318 58% 82%)"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="200" fill="url(#g)"/>
+  <g transform="translate(120 60) scale(1.1)" fill="none" stroke="hsl(284 45% 34%)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 34h144v86H40zM30 128h164v12H30zM78 148h68"/>
+  </g>
+  <text x="300" y="182" text-anchor="end" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="700" fill="hsl(284 45% 30%)" opacity="0.35">NS</text>
+</svg>
