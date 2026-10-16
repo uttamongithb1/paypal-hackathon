@@ -132,7 +132,51 @@ memorable than another happy path.
 
 ---
 
-## 4. Calendar — 27 days
+## 4. Target feature set — what must be in the product
+
+Features only earn their place if a judge can *see* them inside three minutes. Everything below is
+sorted by that test, not by engineering interest.
+
+| # | Feature | Why it wins | Effort | Status |
+|---|---|---|---|---|
+| F1 | **Multi-merchant split checkout** — one cart, N sellers, one approval, funds split via `purchase_units[].payee` + `platform_fees` | The deepest possible use of the PayPal platform, and it's the actual marketplace business model. **5 of 7 existing orders already span multiple merchants** while PayPal is handed a single purchase unit — so today the money is modelled as going to one account | 6–8 h | ❌ not built |
+| F2 | **Trust Lab** — adversarial "try to make it pay" and watch it refuse | The innovation spike. Novel, memorable, and already half-built (the refusal row + guardrail trace) | 4–6 h | 🟡 partial |
+| F3 | **Payment Inspector** — replay capture · re-send webhook · force amount mismatch · expire quote | Proves the payment layer is engineered, not demoed. This is "Best Use of PayPal" as evidence rather than adjectives | 6–8 h | 🟡 partial (simulator has the levers) |
+| F4 | **Judge/demo mode** — one-click guided path + known-good seeded state | Judges "may judge based solely on the video and description". A guided demo removes the risk of them failing to reproduce anything | 3 h | ❌ |
+| F5 | **MCP store surface** — expose the catalogue so *other* agents can shop it | Agent-to-agent commerce. Matches PayPal's own Agent Ready / Store Sync direction. Strongest Innovation play available | 8–10 h | ❌ |
+| F6 | **Real sandbox + live webhooks** (MOV-2) | Stage One pass/fail | 2 h | ❌ |
+| F7 | **Refunds with human approval** — closes the `refunded` state that currently can't be reached | Money movement, and a hole a judge with payment experience will notice | 4 h | ❌ |
+| F8 | **Agent quality panel** — model used, tools per turn, grounding corrections, guardrail hits | Turns "we use AI" into "we measure our AI". Pairs with F2 as governance evidence | 3–4 h | 🟡 data exists, no UI |
+| F9 | **AI-referred revenue** on the merchant dashboard — £ attributed to agent recommendations | Converts the funnel into the number an SMB actually cares about, and makes the Impact story quantitative | 2–3 h | 🟡 derivable |
+| F10 | **Agent-ready store profile** — public machine-readable capabilities/policies endpoint | The "make SMB catalogues legible to agents" thesis, as a real artifact | 3 h | ❌ |
+| F11 | **PayPal Agent Toolkit / hosted MCP** for money actions | Vendor-tool signal on the sponsor's own tooling | 4–6 h | ❌ |
+| F12 | **Polish** — a11y, keyboard, mobile, empty/error states | Design is 20% and this is the cheapest 20% | 4 h | 🟡 mostly done |
+
+### The three that decide it
+
+1. **F1 (split settlement)** — no other entrant will model a marketplace this deeply, and it turns a
+   single-payee checkout into genuine platform engineering. It also makes the impact story concrete:
+   *a marketplace where one agentic checkout settles to many independent sellers.*
+2. **F2 (Trust Lab)** — the one thing a judge will describe to another judge.
+3. **F6 + F4 (real sandbox, guided demo)** — protect everything above from being unverifiable.
+
+### Sequencing
+
+**F6 → F1 → F2 → F3 → F4 → F7 → F9 → F8 → F5 → F10 → F11 → F12.**
+Stop when the calendar runs out; F5/F10/F11 are upside, not requirements.
+
+### Risks on F1
+
+`platform_fees` requires the account to be enabled for PayPal Complete Payments Platform for
+Marketplaces (partner `PARTNER_FEE` feature), and `payee` requires the receiving account to be a
+valid sandbox business. Sandbox may reject either. Mitigation: build it **capability-gated and
+verifiable** — attempt multi-seller, and if PayPal refuses, fall back to a single-unit order while
+surfacing exactly what the sandbox said. A documented, honest fallback is still a stronger story
+than an unexplained single payee; but verify this before the video, not during it.
+
+---
+
+## 5. Calendar — 27 days
 
 ### Week 1 · Oct 16–22 — Remove the disqualification
 | Day | Work |
@@ -170,7 +214,7 @@ a laptop, and watch a real sandbox payment succeed.
 
 ---
 
-## 5. The 3-minute video (the highest-value 3 minutes in this project)
+## 6. The 3-minute video (the highest-value 3 minutes in this project)
 
 Failure-first, because a payment system that handles failure is more impressive than one that doesn't:
 
@@ -189,7 +233,7 @@ Rules: English, no third-party trademarks or copyrighted music, public on YouTub
 
 ---
 
-## 6. What we deliberately do NOT do
+## 7. What we deliberately do NOT do
 
 - **No MongoDB driver.** It is ~6–8 h, it is not scored, and the README is already honest about the
   file store vs the documented Mongo switch. Judges will not run our database. *30 minutes of clear
@@ -206,7 +250,7 @@ Rules: English, no third-party trademarks or copyrighted music, public on YouTub
 
 ---
 
-## 7. Definition of done
+## 8. Definition of done
 
 **Stage One (pass/fail)**
 - [ ] A real AI model, declared by name, doing the planning — not a switch statement
@@ -233,7 +277,7 @@ Rules: English, no third-party trademarks or copyrighted music, public on YouTub
 
 ---
 
-## 8. Start here
+## 9. Start here
 
 **Today:** register on Devpost. Then begin **MOV-1** (the live LLM) — it is the only item on this page
 that is simultaneously a pass/fail gate, 20% of the score, and the tiebreaker.

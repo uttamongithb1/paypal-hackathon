@@ -146,6 +146,7 @@ real PayPal usage. A `payments: simulator` badge in the topbar will not clear it
 
 | # | Gap | Detail | Needed |
 |---|---|---|---|
+| B0 | **Multi-merchant settlement is modelled wrong** | A cart can span 3 merchants (5 of 7 demo orders do), but `paypal.gateway.mjs` sends a single `purchase_units[0]` with no `payee`, so PayPal treats the platform as the sole recipient. There is no split, no merchant payout, no platform fee | `purchase_units[]` per merchant with `payee` + `payment_instruction.platform_fees`, gated on the account capability (see WIN_PLAN F1) |
 | B1 | **Refunds unreachable** | `ORDER_STATUS.REFUNDED` exists and the state machine allows it, but there is **no refund endpoint** in the 49 routes — the state can never be reached | `POST /merchant/orders/:id/refund` → PayPal refund API, ledger entry, event |
 | B2 | **No address capture** | `orders.contact` holds only `{email, name}`. There is no `addresses` collection and no shipping address on the order | Address form on checkout, address on order, validation, used for shipping |
 | B3 | **No shipment record** | Merchant `ship` transition accepts free-text tracking in `meta`; there's no `shipments` collection, no carrier, no delivery confirmation | `shipments` collection + tracking display on order page |
