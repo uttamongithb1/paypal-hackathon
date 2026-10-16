@@ -256,11 +256,17 @@ export class Orchestrator {
     });
 
     if (ctx.candidateIds?.length) {
+      // A comparison can span stores, so tag the event with every merchant involved. Tagging only
+      // the first candidate's merchant made a genuine recommendation invisible on the other
+      // merchants' dashboards (their "Agent recommendations shown" tile read 0 forever).
+      const merchantIds = [...new Set(ctx.candidateIds
+        .map((id) => this.deps.catalogue.getRaw(id)?.merchantId)
+        .filter(Boolean))];
       this.deps.analytics.emit('recommendation_shown', {
         sessionId: session._id,
         userId: user?._id,
-        merchantId: this.deps.catalogue.getRaw(ctx.candidateIds[0])?.merchantId,
-        props: { productCount: ctx.candidateIds.length, revision: ctx.requirement?.revision ?? 0 }
+        merchantId: merchantIds[0],
+        props: { productCount: ctx.candidateIds.length, revision: ctx.requirement?.revision ?? 0, merchantIds }
       });
     }
   }

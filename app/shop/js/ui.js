@@ -55,30 +55,70 @@ const hashOf = (value) => {
   return Math.abs(hash);
 };
 
+/** Composition per size: glyph anchored left, oversized initials watermark right, no collisions. */
+const ART_SPECS = {
+  rail:   { w: 120, h: 120, glyphScale: 2.7, glyphX: 0,    glyphOpacity: 0.9,  initials: null },
+  card:   { w: 320, h: 150, glyphScale: 4.2, glyphX: -62,  glyphOpacity: 0.85, initials: { size: 62, x: 300, y: 118, opacity: 0.16 } },
+  detail: { w: 640, h: 300, glyphScale: 8.0, glyphX: -140, glyphOpacity: 0.85, initials: { size: 120, x: 598, y: 236, opacity: 0.15 } }
+};
+
+/**
+ * Deterministic product artwork. No binary assets ship with the repo: the art is generated from the
+ * product slug so every item has a stable, on-brand image (see docs/design_system.md §6).
+ */
 export function renderProductArt(product, { size = 'card' } = {}) {
   const seed = hashOf(product.slug ?? product.title ?? product.id);
   const hue = seed % 360;
-  const hue2 = (hue + 34) % 360;
+  const hue2 = (hue + 38) % 360;
+  const spec = ART_SPECS[size] ?? ART_SPECS.card;
+  const { w, h: artH, glyphScale, glyphX, glyphOpacity, initials } = spec;
   const glyph = CATEGORY_GLYPH[product.categorySlug] ?? CATEGORY_GLYPH.default;
-  const initials = String(product.title ?? '')
+  const productInitials = String(product.title ?? '')
     .split(/\s+/)
     .slice(0, 2)
     .map((word) => word[0]?.toUpperCase() ?? '')
     .join('');
-  const height = size === 'rail' ? 74 : size === 'detail' ? 210 : 132;
+  const cx = w / 2;
+  const cy = artH / 2;
+
   const svg = `
-    <svg viewBox="0 0 320 ${height}" role="img" aria-label="${escapeHtml(product.title)}" preserveAspectRatio="xMidYMid slice">
+    <svg viewBox="0 0 ${w} ${artH}" role="img" aria-label="${escapeHtml(product.title)}" preserveAspectRatio="xMidYMid slice">
       <defs>
-        <linearGradient id="g${seed}" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="hsl(${hue} 62% 92%)" />
-          <stop offset="100%" stop-color="hsl(${hue2} 58% 82%)" />
+        <linearGradient id="bg${seed}" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="hsl(${hue} 72% 90%)" />
+          <stop offset="58%" stop-color="hsl(${(hue + 18) % 360} 68% 82%)" />
+          <stop offset="100%" stop-color="hsl(${hue2} 64% 72%)" />
         </linearGradient>
+        <radialGradient id="glow${seed}" cx="26%" cy="18%" r="72%">
+          <stop offset="0%" stop-color="#ffffff" stop-opacity="0.72" />
+          <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+        </radialGradient>
       </defs>
-      <rect width="320" height="${height}" fill="url(#g${seed})" />
-      <g transform="translate(24 ${height / 2 - 34}) scale(1.9)" fill="none" stroke="hsl(${hue} 45% 34%)" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round">
-        <path d="${glyph}" />
+
+      <rect width="${w}" height="${artH}" fill="url(#bg${seed})" />
+      <rect width="${w}" height="${artH}" fill="url(#glow${seed})" />
+
+      <!-- soft rings anchored bottom-right, keeps large flat areas from looking empty -->
+      <g fill="none" stroke="hsl(${hue2} 60% 40%)" stroke-opacity="0.16">
+        <circle cx="${w * 0.86}" cy="${artH * 0.9}" r="${Math.min(w, artH) * 0.34}" stroke-width="1.4" />
+        <circle cx="${w * 0.86}" cy="${artH * 0.9}" r="${Math.min(w, artH) * 0.52}" stroke-width="1.2" />
+        <circle cx="${w * 0.86}" cy="${artH * 0.9}" r="${Math.min(w, artH) * 0.7}" stroke-width="1" />
       </g>
-      <text x="296" y="${height - 18}" text-anchor="end" font-family="Inter, system-ui, sans-serif" font-size="30" font-weight="700" fill="hsl(${hue} 45% 30%)" opacity="0.35">${escapeHtml(initials)}</text>
+
+      <!-- category glyph: filled halo + crisp stroke, so it reads at every size -->
+      <g transform="translate(${cx + glyphX} ${cy}) scale(${glyphScale}) translate(-12 -12)">
+        <path d="${glyph}" fill="hsl(${hue} 60% 34%)" fill-opacity="0.16" stroke="none" transform="scale(1.06) translate(-0.7 -0.7)" />
+        <path d="${glyph}" fill="none" stroke="hsl(${hue} 62% 26%)" stroke-opacity="${glyphOpacity}"
+              stroke-width="${1.7 / glyphScale * 2.4}" stroke-linecap="round" stroke-linejoin="round" />
+      </g>
+
+      ${
+        initials
+          ? `<text x="${initials.x}" y="${initials.y}" text-anchor="end" font-family="Inter, system-ui, sans-serif"
+                   font-size="${initials.size}" font-weight="800" letter-spacing="-0.05em"
+                   fill="hsl(${hue2} 52% 26%)" fill-opacity="${initials.opacity}">${escapeHtml(productInitials)}</text>`
+          : ''
+      }
     </svg>`;
   return h('div', { class: `product-art product-art--${size}`, html: svg });
 }

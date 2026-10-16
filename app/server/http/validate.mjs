@@ -52,7 +52,21 @@ export const schemas = {
     attachedProductIds: z.array(id).max(10).optional()
   }).strict(),
   requirementPatch: z.object({ op: z.enum(['add', 'remove', 'set']), constraint: z.record(z.string(), z.unknown()) }).strict(),
-  analytics: z.object({ events: z.array(z.object({ eventId: z.string().max(80), name: z.string().max(60), ts: z.string().optional(), props: z.record(z.string(), z.unknown()).optional() })).max(20) }).strict(),
+  // Unknown keys are stripped rather than rejected: this is a fire-and-forget beacon and the
+  // contract says it "never errors the caller" (docs/api_spec.md §8).
+  analytics: z.object({
+    events: z
+      .array(
+        z.object({
+          eventId: z.string().max(80),
+          name: z.string().min(1).max(60),
+          ts: z.string().optional(),
+          props: z.record(z.string(), z.unknown()).optional()
+        })
+      )
+      .min(1)
+      .max(20)
+  }),
   productCreate: z.object({
     title: z.string().min(3).max(160),
     slug: z.string().max(120).optional(),

@@ -82,13 +82,45 @@ export class AnalyticsService {
   dashboard({ merchantId, from, to, tz = 'UTC' } = {}) {
     const events = this.store.collection('analytics_events');
     const names = ['product_viewed', 'cart_item_added', 'checkout_started', 'payment_captured'];
-    const counts = Object.fromEntries(names.map((n) => [n, this.count(n, { from, to, merchantId })]));
-    const views = counts.product_viewed;
-    const cartAdds = counts.cart_item_added;
-    const checkoutAttempts = counts.checkout_started;
-    const purchases = counts.payment_captured;
+    // Merge the bounds *inside* `ts`: spreading two `{ ts: … }` objects makes the second overwrite
+    // the first, which silently dropped `$gte` and returned all-time data for every range.
+    const tsFilter = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+    const windowEvents = events.find(Object.keys(tsFilter).length ? { ts: tsFilter } : {});
+    // An event belongs to a merchant if it is tagged with that merchant directly or (multi-store
+    // events such as a cross-store comparison) lists it in `props.merchantIds`.
+    const scoped = merchantId
+      ? windowEvents.filter((e) => e.merchantId === merchantId || (e.props?.merchantIds ?? []).includes(merchantId))
+      : windowEvents;
+    const eventCounts = Object.fromEntries(names.map((n) => [n, scoped.filter((e) => e.name === n).length]));
 
-    const bps = (a, b) => (b > 0 ? Math.round((a / b) * 10000) : 0);
+    // The funnel is counted per session (analytics_spec §4: a "session" is `sessions._id`) and is
+    // cumulative — a session that checked out is also counted in the cart and view steps. Counting
+    // raw events instead lets a later step outrun an earlier one (a shopper can reach checkout from
+    // a cart filled in an earlier session), which surfaces as a nonsense "Cart → checkout 150%".
+    // Cumulative-by-session is monotone by construction, so F1 ≥ F2 ≥ F3 ≥ F4 always holds.
+    const stageOf = { product_viewed: 1, cart_item_added: 2, checkout_started: 3, payment_captured: 4 };
+    const deepest = new Map(); // sessionId → furthest stage reached (1 view · 2 cart · 3 checkout · 4 paid)
+    for (const event of scoped) {
+      const stage = stageOf[event.name];
+      if (!stage) continue;
+      const key = event.sessionId ?? `anon:${event._id}`;
+      deepest.set(key, Math.max(deepest.get(key) ?? 0, stage));
+    }
+    const reached = (stage) => [...deepest.values()].filter((value) => value >= stage).length;
+    const views = reached(1);
+    const cartAdds = reached(2);
+    const checkoutAttempts = reached(3);
+    const purchases = reached(4);
+
+    // analytics_spec §7: F1 ≥ F2 ≥ F3 ≥ F4 over the raw emit sites; a violation means an emit site
+    // is under- or over-firing. Warn, never mutate, never fail the dashboard.
+    const rawOrder = [eventCounts.product_viewed, eventCounts.cart_item_added, eventCounts.checkout_started, eventCounts.payment_captured];
+    const emitViolations = rawOrder.slice(1).map((value, index) => (value > rawOrder[index] ? `${names[index]} < ${names[index + 1]}` : null)).filter(Boolean);
+    if (emitViolations.length) {
+      logger.warn('analytics.funnel_emit_mismatch', { merchantId: merchantId ?? null, violations: emitViolations, eventCounts });
+    }
+
+    const bps = (a, b) => (b > 0 ? Math.min(10000, Math.round((a / b) * 10000)) : 0);
 
     const dayKey = (iso) => iso.slice(0, 10);
     const byDay = new Map();
@@ -138,7 +170,20 @@ export class AnalyticsService {
 
     return {
       range: { from, to, tz },
-      funnel: { views, cartAdds, checkoutAttempts, purchases },
+      funnel: { views, cartAdds, checkoutAttempts, purchases, sessions: deepest.size },
+      // Agent/AI telemetry behind the "is the AI actually doing anything?" dashboard tiles.
+      // Recommendations are merchant-attributable; chat/turn/guardrail events are platform-level
+      // (they carry no merchantId by design), so they are counted across the whole store and the
+      // dashboard labels them as such rather than showing a false zero.
+      counts: {
+        recommendationShown: scoped.filter((e) => e.name === 'recommendation_shown').length,
+        chatMessages: windowEvents.filter((e) => e.name === 'chat_message_sent').length,
+        agentTurns: windowEvents.filter((e) => e.name === 'agent_turn_completed').length,
+        guardrailsTriggered: windowEvents.filter((e) => e.name === 'guardrail_triggered').length,
+        scope: merchantId ? 'merchant' : 'platform',
+        events: eventCounts
+      },
+      reconcile: { emitViolations },
       rates: {
         viewToCartBps: bps(cartAdds, views),
         cartToCheckoutBps: bps(checkoutAttempts, cartAdds),
@@ -157,13 +202,18 @@ export class AnalyticsService {
     };
   }
 
-  /** Invariant from analytics_spec §7: views ≥ cart adds ≥ checkout attempts ≥ purchases. */
+  /**
+   * Invariant from analytics_spec §7: views ≥ cart adds ≥ checkout attempts ≥ purchases.
+   * The funnel is cumulative per session, so a violation here means the aggregation itself broke —
+   * the previous version tolerated `checkoutAttempts > cartAdds + views`, which is what let a
+   * 150 % step rate reach the dashboard.
+   */
   funnelViolations({ merchantId } = {}) {
-    const counts = this.dashboard({ merchantId }).funnel;
+    const { funnel } = this.dashboard({ merchantId });
     const violations = [];
-    if (counts.cartAdds > counts.views) violations.push('cartAdds > views');
-    if (counts.checkoutAttempts > counts.cartAdds + counts.views) violations.push('checkoutAttempts > cartAdds');
-    if (counts.purchases > counts.checkoutAttempts) violations.push('purchases > checkoutAttempts');
+    if (funnel.cartAdds > funnel.views) violations.push('cartAdds > views');
+    if (funnel.checkoutAttempts > funnel.cartAdds) violations.push('checkoutAttempts > cartAdds');
+    if (funnel.purchases > funnel.checkoutAttempts) violations.push('purchases > checkoutAttempts');
     return violations;
   }
 }

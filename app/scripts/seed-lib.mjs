@@ -186,38 +186,56 @@ export function seedAnalytics(store, { products, merchants, days = 30 }) {
   const productList = products.filter((p) => p.status === 'active');
   const curve = [0.7, 0.85, 1.0, 1.1, 1.25, 1.35, 0.95]; // Sun..Sat
 
-  const targets = { product_viewed: 1840, cart_item_added: 312, checkout_started: 96, payment_captured: 41 };
+  // Target totals from docs/analytics_spec.md §7.
+  const targets = { views: 1840, cartAdds: 312, checkoutAttempts: 96, purchases: 41 };
+  const stepRates = {
+    viewToCart: targets.cartAdds / targets.views,             // 0.170
+    cartToCheckout: targets.checkoutAttempts / targets.cartAdds, // 0.308
+    checkoutToPaid: targets.purchases / targets.checkoutAttempts // 0.427
+  };
   const failures = { INSTRUMENT_DECLINED: 4, INSUFFICIENT_FUNDS: 2, CANCELED: 1 };
-  let budget = 0;
-  for (const weight of curve) budget += weight;
 
-  for (const [name, total] of Object.entries(targets)) {
-    for (let day = days - 1; day >= 0; day -= 1) {
-      const date = new Date(now - day * dayMs);
-      const weight = curve[date.getDay()] / budget;
-      const dayCount = Math.max(1, Math.round(total * weight * (1 / (days / 7)) / 7));
-      for (let i = 0; i < dayCount; i += 1) {
-        const product = productList[(day * 7 + i) % productList.length];
-        const ts = new Date(date.getTime() - (i * 137_000) % dayMs).toISOString();
-        const sessionId = `seed_s_${day}_${i % 40}`;
-        events.push({
-          eventId: uuid(),
-          name,
-          ts,
-          source: 'server',
-          sessionId,
-          merchantId: product.merchantId,
-          productId: product._id,
-          props:
-            name === 'product_viewed'
-              ? { productId: product._id, surface: 'grid' }
-              : name === 'cart_item_added'
-                ? { productId: product._id, quantity: 1, unitPriceMinor: product.priceMinor, surface: 'card' }
-                : name === 'checkout_started'
-                  ? { orderId: objectId(), orderNumber: `SP-2026-${String(100 + i).padStart(6, '0')}`, itemCount: 1 + (i % 3), totalMinor: product.priceMinor, attemptNo: 1, fromSurface: 'checkout' }
-                  : { orderId: objectId(), amountMinor: product.priceMinor, captureIdSuffix: String(100000 + i).slice(-6) }
-        });
-      }
+  // Deterministic PRNG so a reseeded demo is byte-identical on every machine.
+  let seedState = 0x5eed1;
+  const rand = () => ((seedState = (seedState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+
+  // Walk each *session* down the funnel instead of emitting each step as an independent daily
+  // quota. Independent quotas floored every step at 1/day, so a 7-day window could show more
+  // checkouts than cart adds — the spec's F1 ≥ F2 ≥ F3 ≥ F4 invariant (analytics_spec §7) was
+  // violated by the seed data itself. Sessions make the funnel monotone in every window, and give
+  // the session-scoped funnel real sessions to count.
+  const totalBudget = curve.reduce((sum, weight) => sum + weight, 0);
+  for (let day = days - 1; day >= 0; day -= 1) {
+    const date = new Date(now - day * dayMs);
+    const dayViews = Math.max(1, Math.round(targets.views * (curve[date.getDay()] / totalBudget) / (days / 7)));
+    for (let i = 0; i < dayViews; i += 1) {
+      const sessionId = `seed_s_${day}_${i % 60}`;
+      const at = (minute) => new Date(date.getTime() - ((i * 137 + minute * 611) % 20_000) * 1000).toISOString();
+      const product = productList[(day * 7 + i) % productList.length];
+      events.push({
+        eventId: uuid(), name: 'product_viewed', ts: at(9), source: 'server', sessionId,
+        merchantId: product.merchantId, productId: product._id,
+        props: { productId: product._id, surface: 'grid' }
+      });
+      if (rand() > stepRates.viewToCart) continue;
+      events.push({
+        eventId: uuid(), name: 'cart_item_added', ts: at(6), source: 'server', sessionId,
+        merchantId: product.merchantId, productId: product._id,
+        props: { productId: product._id, quantity: 1, unitPriceMinor: product.priceMinor, surface: 'card' }
+      });
+      if (rand() > stepRates.cartToCheckout) continue;
+      const orderId = objectId();
+      events.push({
+        eventId: uuid(), name: 'checkout_started', ts: at(3), source: 'server', sessionId,
+        merchantId: product.merchantId, productId: product._id,
+        props: { orderId, orderNumber: `SP-2026-${String(100 + i).padStart(6, '0')}`, itemCount: 1 + (i % 3), totalMinor: product.priceMinor, attemptNo: 1, fromSurface: 'checkout' }
+      });
+      if (rand() > stepRates.checkoutToPaid) continue;
+      events.push({
+        eventId: uuid(), name: 'payment_captured', ts: at(1), source: 'server', sessionId,
+        merchantId: product.merchantId, productId: product._id,
+        props: { orderId, amountMinor: product.priceMinor, captureIdSuffix: String(100000 + i).slice(-6) }
+      });
     }
   }
 

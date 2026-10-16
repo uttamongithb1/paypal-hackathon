@@ -13,8 +13,21 @@ import { renderCheckout } from './checkout.js';
 import { renderOrderDetail, renderOrders } from './orders.js';
 import { renderMerchant } from './merchant.js';
 
+/**
+ * The catalogue rail is a companion to the shop view, not a view of its own — it shares the grid
+ * column with the chat pane. Mapping every view to the panes it owns keeps that explicit instead of
+ * hiding the rail on the one screen that needs it.
+ */
+const VIEW_PANES = {
+  shop: ['shop', 'rail'],
+  orders: ['orders'],
+  checkout: ['checkout'],
+  merchant: ['merchant']
+};
+
 const setView = (view) => {
-  for (const node of $$('[data-view]')) node.hidden = node.dataset.view !== view;
+  const panes = VIEW_PANES[view] ?? [view];
+  for (const node of $$('[data-view]')) node.hidden = !panes.includes(node.dataset.view);
   const nav = { shop: 'shop', orders: 'orders', merchant: 'merchant', checkout: 'orders' }[view];
   for (const link of $$('[data-nav]')) link.setAttribute('aria-current', link.dataset.nav === nav && (view === link.dataset.nav || (view === 'checkout' && link.dataset.nav === 'orders')) ? 'page' : 'false');
   $('#main').style.gridTemplateColumns = view === 'shop' ? '' : 'minmax(0, 1fr)';
@@ -71,7 +84,7 @@ async function renderRail() {
         ? items.map((product) => railItem(product, { onDetails: (slug) => openProduct(slug) }))
         : [h('div', { class: 'empty-state' }, [h('p', { class: 'note', text: 'No products match that filter.' })])])
     );
-    $('#rail-count').textContent = `${total ?? items.length} products · filtered live from the catalogue`;
+    $('#rail-count').textContent = `${total ?? items.length} products`;
   } catch (error) {
     grid.replaceChildren(h('div', { class: 'callout callout--danger', text: error.message }));
   }
@@ -133,6 +146,13 @@ function wire() {
     resetConversation();
     toast('Fresh conversation — the requirement history is cleared for this session.');
   });
+  // First-run hero: each example is a real prompt handed straight to the agent.
+  for (const button of $$('#hero-examples [data-prompt]')) {
+    button.addEventListener('click', () => {
+      track([event('hero_example_clicked', { prompt: button.dataset.prompt })]);
+      send(button.dataset.prompt);
+    });
+  }
   $('#auth-button').addEventListener('click', async () => {
     if (state.user && state.user.role !== 'guest') {
       await signOut();

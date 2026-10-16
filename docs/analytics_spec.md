@@ -138,6 +138,8 @@ db.analytics_events.aggregate([
 // timeseries (7d/30d)
 ... plus { $group: { _id: { d: { $dateToString: { format: '%Y-%m-%d', date: '$ts', timezone: tz } }, name: '$name' }, c: { $sum: 1 } } }
 ```
+The shipped reference implementation returns `{ range, funnel, counts, reconcile, rates, timeseries, products, paymentHealth }` and counts the funnel **per session, cumulatively** (a session counts once per step it reached, so `F1 ≥ F2 ≥ F3 ≥ F4` holds by construction and no step can exceed 100 % of the previous one). `counts` carries agent/AI telemetry (`recommendationShown` merchant-scoped; `chatMessages`, `agentTurns`, `guardrailsTriggered` platform-level) and `reconcile.emitViolations` lists any raw-event mismatch found by the §7 check.
+
 Performance: always constrain by `ts` and `merchantId` to hit `{ merchantId: 1, name: 1, ts: -1 }`; cap `$facet` results; cache dashboard responses in-process for 60 s keyed by `(merchantId, range, tz)`.
 
 ---
@@ -147,4 +149,4 @@ Performance: always constrain by `ts` and `merchantId` to hit `{ merchantId: 1, 
 * Each emit site has a test asserting **exactly one** event per action (no double-fires on retry: server emitters are idempotent via `dedupeKey` where retries are possible, e.g. `checkout_started:{orderId}`).
 * Aggregation functions are unit-tested against a synthetic fixture set (10 sessions, known funnel) where the expected numbers are hand-computed in the test file.
 * Nightly sanity check: `F1 ≥ F2 ≥ F3 ≥ F4` for every merchant over the last 7 days; violations log a warning (indicates an emit-site bug), never mutate data.
-* The seed script generates deterministic events so the demo dashboard shows a plausible funnel: views 1 840 / cart adds 312 / checkout attempts 96 / purchases 41 (with 7 failures) across 30 days.
+* The seed script generates deterministic events so the demo dashboard shows a plausible funnel: views 1 840 / cart adds 312 / checkout attempts 96 / purchases 41 (with 7 failures) across 30 days. It walks each synthetic **session** down the funnel (view → cart → checkout → paid at the §7 conversion rates) rather than emitting per-step daily quotas: independent quotas floored every low-volume step at one event per day, which violated `F1 ≥ F2 ≥ F3 ≥ F4` in short ranges — seed data, not the emit sites, was the source of the violation.

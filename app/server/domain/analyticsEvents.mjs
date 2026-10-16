@@ -44,7 +44,9 @@ export const EVENT_PROPS = {
   chat_message_sent: { turnIndex: 'number', textLength: 'number', entryPoint: CHAT_ENTRY },
   chat_clarification_asked: { questionKind: CLARIFICATION_KINDS, optionsCount: 'number' },
   requirement_updated: { revision: 'number' },
-  recommendation_shown: { productCount: 'number', revision: 'number' },
+  // merchantIds: a cross-store comparison is a recommendation for every merchant involved, so the
+  // dashboard of each of them can count it (previously only the first candidate's store was tagged).
+  recommendation_shown: { productCount: 'number', revision: 'number', merchantIds: 'stringList' },
   product_impression: { productId: 'string', surface: SURFACES, position: 'number' },
   product_viewed: { productId: 'string', surface: SURFACES },
   comparison_shown: { productCount: 'number' },
@@ -81,6 +83,9 @@ export function validateEvent(event) {
     if (rule === 'number' && typeof value !== 'number') continue;
     if (rule === 'string' && typeof value !== 'string') continue;
     if (rule === 'boolean' && typeof value !== 'boolean') continue;
+    // 'stringList': a small array of short strings (e.g. every merchant a multi-store comparison
+    // touched). Anything else is dropped.
+    if (rule === 'stringList' && !(Array.isArray(value) && value.length <= 12 && value.every((v) => typeof v === 'string' && v.length <= 64))) continue;
     if (Array.isArray(rule) && !rule.includes(value)) continue;
     clean[key] = value;
   }

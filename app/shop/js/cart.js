@@ -145,6 +145,11 @@ export async function reviewAndPay() {
   }
   try {
     const quote = await createQuote(true);
+    if (!quote?.id || !quote?.hash) {
+      // Never post an order without a quote: the server would reject it and the shopper would see
+      // a raw validation error instead of a useful message.
+      throw Object.assign(new Error('We could not price this cart just now. Please try again.'), { code: 'QUOTE_UNAVAILABLE' });
+    }
     track([event('checkout_started', { itemCount: quote.lines?.length ?? 0, totalMinor: quote.amounts?.totalMinor ?? 0, fromSurface: 'checkout' })]);
     const contact = state.user?.email && state.user.role !== 'guest'
       ? { email: state.user.email, name: state.user.displayName ?? state.user.email }

@@ -169,8 +169,19 @@ export async function clearCart() {
 }
 
 /* ── Checkout + payments ─────────────────────────────────────────────────── */
-export const createQuote = (extendHolds = true) =>
-  api('/checkout/quote', { method: 'POST', body: { extendHolds }, idempotencyKey: `quote-${uuid()}` });
+/**
+ * Server quote: frozen prices, tax/shipping and stock holds. The endpoint answers
+ * `{ quote, holds }`; callers only ever want the quote, so unwrap it here rather than making every
+ * call site remember the envelope (a missing unwrap silently sent an order with no quoteId).
+ */
+export const createQuote = async (extendHolds = true) => {
+  const response = await api('/checkout/quote', {
+    method: 'POST',
+    body: { extendHolds },
+    idempotencyKey: `quote-${uuid()}`
+  });
+  return response.quote ?? response;
+};
 
 export const createOrder = ({ quoteId, quoteHash, contact, savedQuoteId }) =>
   api('/orders', {
@@ -205,12 +216,16 @@ export const track = (events) =>
     .then(() => undefined)
     .catch(() => undefined); // analytics must never break the UX
 
+/**
+ * Client analytics beacon. Field names follow docs/api_spec.md §8 exactly — the ingest endpoint
+ * validates them, and this used to send `id`/`at` instead of `eventId`/`ts`, so every beacon was
+ * rejected and the merchant funnel lost all client-side signal.
+ */
 export const event = (name, props = {}, extra = {}) => ({
-  id: `evt_${uuid()}`,
+  eventId: `evt_${uuid()}`,
   name,
-  at: new Date().toISOString(),
-  surface: 'web',
-  props,
+  ts: new Date().toISOString(),
+  props: { surface: 'web', ...props },
   ...extra
 });
 

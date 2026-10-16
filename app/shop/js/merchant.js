@@ -66,19 +66,32 @@ export async function renderMerchant() {
     ]);
     const funnel = analytics.funnel ?? {};
     const max = Math.max(1, funnel.views ?? 1);
+    // Order-health numbers are derived from the lists we already have, so the KPI row can never
+    // disagree with the table below it.
+    const allOrders = orders.items ?? [];
+    const inFlight = allOrders.filter((o) => ['awaiting_payment', 'payment_processing'].includes(o.status)).length;
+    const failed = allOrders.filter((o) => ['payment_failed', 'expired', 'cancelled'].includes(o.status)).length;
+    const productRows = products.items ?? [];
+    const lowStock = (overview.lowStock ?? []).length ? overview.lowStock : productRows.filter((p) => p.stock > 0 && p.stock <= 3);
+    const outOfStock = productRows.filter((p) => (p.stock ?? 0) <= 0).length;
 
     host.replaceChildren(
       h('div', { class: 'page-head' }, [
         h('h1', { text: 'Merchant dashboard' }),
-        h('p', { class: 'muted', text: `Signed in as ${state.user.email} · merchant ${overview.merchant?.name ?? state.user.merchantId ?? ''}` })
+        // The overview DTO carries no merchant object, so resolve the display name from the
+        // merchant's own product rows rather than printing a raw id at the top of the dashboard.
+        h('p', { class: 'muted', text: `Signed in as ${state.user.email} · ${productRows[0]?.merchant?.name ?? 'merchant'}` })
       ]),
 
       // ── KPIs ──────────────────────────────────────────────────────────────
       h('div', { class: 'section' }, [
         h('div', { class: 'kpi-grid' }, [
-          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Paid revenue (all time)' }), h('div', { class: 'kpi__value', text: money(overview.revenue?.paidMinor ?? 0) }), h('div', { class: 'note', text: `${overview.orders?.paid ?? 0} paid orders` })]),
-          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Orders in flight' }), h('div', { class: 'kpi__value', text: String(overview.orders?.awaitingPayment ?? 0) }), h('div', { class: 'note', text: `awaiting payment · ${overview.orders?.failed ?? 0} failed` })]),
-          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Active products' }), h('div', { class: 'kpi__value', text: String(overview.products?.active ?? products.total ?? 0) }), h('div', { class: 'note', text: `${overview.products?.lowStock ?? 0} low stock · ${overview.products?.outOfStock ?? 0} out of stock` })]),
+          // GET /merchant/overview answers a *flat* shape (docs/api_spec.md §merchant):
+          // { revenueMinor, paidOrders, avgOrderValueMinor, conversionRateBps, lowStock[], recentOrders[] }.
+          // Reading a nested `overview.revenue.paidMinor` silently rendered $0.00 forever.
+          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Paid revenue (all time)' }), h('div', { class: 'kpi__value', text: overview.revenueDisplay ?? money(overview.revenueMinor ?? 0) }), h('div', { class: 'note', text: `${overview.paidOrders ?? 0} paid orders · avg ${overview.avgOrderValueDisplay ?? money(overview.avgOrderValueMinor ?? 0)}` })]),
+          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Orders in flight' }), h('div', { class: 'kpi__value', text: String(inFlight) }), h('div', { class: 'note', text: `of ${overview.totalOrders ?? orders.total ?? 0} orders · ${failed} failed` })]),
+          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Active products' }), h('div', { class: 'kpi__value', text: String(overview.products?.active ?? products.total ?? 0) }), h('div', { class: 'note', text: `${lowStock.length} low stock · ${outOfStock} out of stock` })]),
           h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Conversion (view → purchase)' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.viewToPurchaseBps ?? 0) / 100).toFixed(1)}%` }), h('div', { class: 'note', text: `last ${analytics.range?.days ?? 7} days` })])
         ])
       ]),
@@ -110,7 +123,13 @@ export async function renderMerchant() {
           h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'View → cart' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.viewToCartBps ?? 0) / 100).toFixed(1)}%` })]),
           h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Cart → checkout' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.cartToCheckoutBps ?? 0) / 100).toFixed(1)}%` })]),
           h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Checkout → paid' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.checkoutToPaidBps ?? 0) / 100).toFixed(1)}%` })]),
-          h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Agent recommendations shown' }), h('div', { class: 'kpi__value', text: String(analytics.counts?.recommendationShown ?? analytics.recommendationShown ?? 0) })])
+          h('div', { class: 'kpi' }, [
+            h('div', { class: 'kpi__label', text: 'Agent recommendations shown' }),
+            h('div', { class: 'kpi__value', text: String(analytics.counts?.recommendationShown ?? 0) }),
+            // Merchant-scoped count; chat/turn telemetry is platform-level (agent events carry no
+            // merchant id), so it is labelled instead of being silently folded into the tile.
+            h('div', { class: 'note', text: `${analytics.counts?.chatMessages ?? 0} chat messages · ${analytics.counts?.agentTurns ?? 0} agent turns (all stores)` })
+          ])
         ]),
         h('div', { class: 'kpi-grid' }, [
           sparkline(analytics.timeseries ?? [], 'views', 'Views per day'),
