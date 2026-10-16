@@ -7,6 +7,7 @@ import {
   merchantAnalytics, merchantAttempts, merchantCreateProduct, merchantOrderAction, merchantOrders,
   merchantOverview, merchantProducts, merchantUpdateProduct, money, state
 } from './api.js';
+import { settlementPanel, settlementBadge } from './settlement.js';
 import { $, h, humanStatus, openModal, skeleton, statusTone, toast, closeModal } from './ui.js';
 
 const range = { value: '7d' };
@@ -203,10 +204,21 @@ export async function renderMerchant() {
               h('tr', {}, [
                 h('td', {}, [h('div', { class: 'mono', text: order.orderNumber }), h('div', { class: 'card__merchant', text: new Date(order.createdAt).toLocaleString() })]),
                 h('td', { text: order.contact?.email ?? '—' }),
-                h('td', { class: 'num mono', text: order.amounts?.display?.total ?? money(order.amounts?.totalMinor) }),
+                h('td', { class: 'num' }, [
+                  h('div', { class: 'mono', text: order.amounts?.display?.total ?? money(order.amounts?.totalMinor) }),
+                  // In a split settlement the merchant cares about their own unit, not the basket total.
+                  (() => {
+                    const unit = order.payment?.settlement?.units?.find((u) => u.merchantId === state.user?.merchantId);
+                    if (order.payment?.settlement?.mode !== 'split' || !unit) return null;
+                    return h('div', { class: 'note', text: `your share ${money(unit.amountMinor)} · commission ${money(unit.platformFeeMinor ?? 0)}` });
+                  })()
+                ]),
                 h('td', {}, [h('span', { class: `badge badge--${statusTone(order.status)}`, text: humanStatus(order.status) })]),
                 h('td', {}, [
-                  h('span', { class: `badge badge--${statusTone(order.payment?.status === 'succeeded' ? 'paid' : order.payment?.status === 'failed' ? 'failed' : 'pending')}`, text: `${humanStatus(order.payment?.status ?? 'none')} · ${order.payment?.lastAttemptNo ?? 0}` })
+                  h('div', { class: 'row' }, [
+                    h('span', { class: `badge badge--${statusTone(order.payment?.status === 'succeeded' ? 'paid' : order.payment?.status === 'failed' ? 'failed' : 'pending')}`, text: `${humanStatus(order.payment?.status ?? 'none')} · ${order.payment?.lastAttemptNo ?? 0}` }),
+                    settlementBadge(order)
+                  ])
                 ]),
                 h('td', {}, [
                   h('div', { class: 'row' }, [
@@ -354,6 +366,7 @@ async function openAttempts(order) {
           ))
         ])
       ]),
+      settlementPanel(order, { merchantId: state.user?.merchantId }),
       h('p', { class: 'note', text: 'Idempotency keys make each attempt safe to replay. A failed attempt never marks an order paid.' })
     );
   } catch (error) {

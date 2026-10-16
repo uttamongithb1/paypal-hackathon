@@ -6,6 +6,7 @@
  * the developer's `.data/db.json`.
  */
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +51,25 @@ export function runScript(script, args = [], env = {}) {
   });
 }
 
+/**
+ * Ask the OS for a port that is actually free.
+ *
+ * Guessing a random port in a fixed range made the suite flaky: test files run concurrently and a
+ * file that starts several servers (split-settlement.test.mjs does) could collide, which failed
+ * every test on that instance with "did not become ready". Binding port 0 and reading back the
+ * assignment removes the guesswork.
+ */
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
 /** Start a server on an ephemeral port with a fresh store, then seed it. */
 export async function startServer({ seed = 'catalogue', env = {} } = {}) {
   // env.dataDir is resolved relative to the app root, so use a run-scoped relative folder and
@@ -57,7 +77,7 @@ export async function startServer({ seed = 'catalogue', env = {} } = {}) {
   const runDir = `.data-test/${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
   const dataDir = path.join(appRoot, runDir);
   fs.mkdirSync(dataDir, { recursive: true });
-  const port = 3400 + Math.floor(Math.random() * 400);
+  const port = await freePort();
   const childEnv = {
     ...process.env,
     PORT: String(port),

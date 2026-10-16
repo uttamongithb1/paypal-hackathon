@@ -176,8 +176,13 @@ Owner-scoped (customer, session, merchant of a line, admin). Returns the order w
   "createdAt":"…","expiresAt":"…",
   "amounts":{ "subtotalMinor":175800,"shippingMinor":0,"taxMinor":14504,"totalMinor":190304,"currency":"USD" },
   "contact":{ "email":"buyer@example.com" },
-  "payment":{ "provider":"paypal","status":"created","paypalOrderId":"5O19…","amountVerified":false,"lastAttemptNo":1 },
+  "payment":{ "provider":"paypal","status":"created","paypalOrderId":"5O19…","amountVerified":false,"lastAttemptNo":1,
+    "settlement":{ "mode":"split","reason":[],
+      "units":[{ "referenceId":"m1","merchantId":"e756…","merchantName":"Vertex Systems",
+                  "amountMinor":124380,"platformFeeMinor":6219,"payeeEmail":"vertex-systems@sandbox.demo" }],
+      "totals":{ "amountMinor":192469,"platformFeeMinor":9623,"sellerCount":2 } } },
   "timeline":[{ "at":"…","event":"order_created","actor":"user" },
+              { "at":"…","event":"settlement_split","actor":"system","meta":{ "sellers":2,"platformFeeMinor":9623 } },
               { "at":"…","event":"paypal_order_created","actor":"system" }] },
   "quotePreview": { "expiresAt":"…","amounts":{…},"warnings":[] } }
 ```
@@ -198,12 +203,15 @@ Owner-scoped (customer, session, merchant of a line, admin). Returns the order w
 { "order": { "id":"…","orderNumber":"SP-2026-000123","status":"paid","paidAt":"…" },
   "payment": { "status":"captured","captureId":"3C679366HH908993F","capturedAt":"…",
                "amountMinor":190304,"currency":"USD","amountVerified":true,
-               "payerEmailHash":"a91f…" },
+               '"payerEmailHash":"a91f…",
+               "captures":[{ "id":"3C6793…","amountMinor":124380,"status":"COMPLETED" },
+                            { "id":"9AB120…","amountMinor":68089,"status":"COMPLETED" }] },
   "receipt": { "orderId":"…","items":[…],"amounts":{…} } }
 ```
 Failure responses (order status never becomes `paid`):
 | Case | HTTP | code | order status | UI state |
 |---|---|---|---|---|
+| *(as-built)* split capture whose seller units, payees or summed amount differ from the plan | 409 | `PAYMENT_VERIFICATION_FAILED` (`details.checks.settlementOk=false`) | unchanged | “We couldn’t verify that payment” |
 Declined card | 402 | `PAYMENT_DECLINED` | `payment_failed` | retry panel |
 Insufficient funds | 402 | `PAYMENT_INSUFFICIENT_FUNDS` | `payment_failed` | retry panel + hint "try another funding source" |
 Payer action required (eCheque) | 202 | `PAYMENT_PENDING` | `payment_processing` | pending panel with polling |

@@ -21,6 +21,7 @@ export const EVENT_NAMES = [
   'payment_failed',
   'payment_pending',
   'payment_cancelled',
+  'payment_settlement_fallback',
   'order_expired',
   'order_cancelled',
   'order_confirmed_viewed',
@@ -56,6 +57,8 @@ export const EVENT_PROPS = {
   quote_requested: { itemCount: 'number', totalMinor: 'number' },
   checkout_started: { orderId: 'string', orderNumber: 'string', itemCount: 'number', totalMinor: 'number', attemptNo: 'number', fromSurface: ['chat', 'cart', 'checkout'] },
   payment_attempted: { orderId: 'string', attemptNo: 'number', amountMinor: 'number' },
+  // Multi-seller settlement downgraded to a single unit because the account lacks the capability.
+  payment_settlement_fallback: { orderId: 'string', reason: 'string' },
   payment_captured: { orderId: 'string', amountMinor: 'number', captureIdSuffix: 'string' },
   payment_failed: { orderId: 'string', attemptNo: 'number', reason: FAILURE_REASONS },
   payment_pending: { orderId: 'string', attemptNo: 'number' },

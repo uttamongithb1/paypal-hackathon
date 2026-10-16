@@ -10,6 +10,7 @@
  */
 import { ApiError } from '../lib/errors.mjs';
 import { hashPii, objectId, stableHash } from '../lib/crypto.mjs';
+import { settlementPlan, verifySettlement } from '../payments/settlement.mjs';
 import { formatMoney, toPayPalAmount } from '../lib/money.mjs';
 import { ATTEMPT_STATUS, ORDER_STATUS, PAYMENT_STATUS, assertTransition, canTransition, paypalCaptureRequestId, paypalRequestId } from '../domain/orderState.mjs';
 import env from '../config/env.mjs';
@@ -102,9 +103,31 @@ export class PaymentService {
     });
 
     try {
-      const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl });
-      this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.AWAITING_APPROVAL, paypalOrderId: created.id, paypalOrderStatus: created.status });
-      this.order.orders.updateOne({ _id: order._id }, { payment: { ...order.payment, status: PAYMENT_STATUS.CREATED, paypalOrderId: created.id, lastAttemptNo: attemptNo } });
+      const { created, plan } = await this.createWithSettlement({ order, idempotencyKey, returnUrl, cancelUrl });
+      this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.AWAITING_APPROVAL, paypalOrderId: created.id, paypalOrderStatus: created.status, settlement: plan.mode });
+      this.order.orders.updateOne(
+        { _id: order._id },
+        {
+          payment: {
+            ...order.payment,
+            status: PAYMENT_STATUS.CREATED,
+            paypalOrderId: created.id,
+            lastAttemptNo: attemptNo,
+            // Persisted so capture verification knows exactly which sellers were meant to be paid.
+            settlement: {
+              mode: plan.mode,
+              units: plan.units.map((u) => ({
+                referenceId: u.referenceId, merchantId: u.merchantId, merchantName: u.merchantName,
+                amountMinor: u.amountMinor,
+                platformFeeMinor: u.platformFeeMinor, payeeEmail: u.payee?.emailAddress ?? null
+              })),
+              /// Kept so the merchant dashboard can show commission earned without re-deriving it.
+              totals: plan.totals ?? null,
+              reason: plan.reasons ?? []
+            }
+          }
+        }
+      );
       this.order.timeline(order._id, 'paypal_order_created', 'system', { paypalOrderId: created.id, attemptNo });
       this.analytics.emit('payment_attempted', {
         sessionId: order.sessionId,
@@ -206,28 +229,118 @@ export class PaymentService {
   }
 
   /**
+   * Create the PayPal order using the configured settlement mode.
+   *
+   * `auto` means: try multi-seller, and if the account is not enabled for the Marketplaces
+   * capability, re-create as a single unit rather than failing the shopper's payment. The fallback
+   * is recorded (analytics + timeline + the reason on the order) so the demo can state plainly
+   * which mode actually settled — a silent downgrade would be exactly the kind of dishonesty this
+   * project is written to avoid.
+   */
+  async createWithSettlement({ order, idempotencyKey, returnUrl, cancelUrl }) {
+    const mode = env.paypalSettlement === 'split' ? 'split' : env.paypalSettlement === 'single' ? 'single' : 'auto';
+    const merchants = new Map(
+      this.store.collection('merchants').find({}).map((m) => [m._id, m])
+    );
+    const plan = settlementPlan(order, { merchants, mode: mode === 'auto' ? 'split' : mode, platformFeeBps: env.platformFeeBps });
+
+    if (mode === 'auto' && plan.mode === 'single') {
+      logger.info('payment.settlement.single', { orderId: order._id, reason: plan.reasons });
+    }
+
+    try {
+      const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan });
+      if (plan.mode === 'split') {
+        this.order.timeline(order._id, 'settlement_split', 'system', {
+          sellers: plan.units.length, platformFeeMinor: plan.totals.platformFeeMinor
+        });
+      }
+      return { created, plan };
+    } catch (error) {
+      const capabilityRejected = ['SPLIT_SETTLEMENT_UNSUPPORTED', 'PAYMENT_INSTRUCTION_NOT_SUPPORTED', 'MSP_NOT_SUPPORTED'].includes(error.issue);
+      if (mode === 'auto' && plan.mode === 'split' && capabilityRejected) {
+        const fallback = settlementPlan(order, { merchants, mode: 'single' });
+        fallback.reasons = [...(fallback.reasons ?? []), 'account not enabled for multi-seller payments'];
+        const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan: fallback });
+        this.order.timeline(order._id, 'settlement_fallback', 'system', { from: 'split', to: 'single', reason: fallback.reasons.join('; ') });
+        this.analytics.emit('payment_settlement_fallback', {
+          sessionId: order.sessionId, userId: order.userId, orderId: order._id,
+          props: { orderId: order._id, reason: 'capability_unsupported' }
+        });
+        logger.warn('payment.settlement.fallback', { orderId: order._id, reason: fallback.reasons.join('; ') });
+        return { created, plan: fallback };
+      }
+      throw error;
+    }
+  }
+
+  /**
    * verifyCapture V1–V7. Returns { ok } or a reason; never throws (the caller maps to HTTP).
    */
   verifyCapture(order, response) {
-    const checks = { statusOk: false, orderRefOk: false, captureExistsOk: false, amountOk: false, currencyOk: false, captureStatusOk: false, uniqueOk: false };
-    const unit = response?.purchase_units?.[0];
+    const checks = { statusOk: false, orderRefOk: false, captureExistsOk: false, amountOk: false, currencyOk: false, captureStatusOk: false, uniqueOk: false, settlementOk: true };
+    const units = response?.purchase_units ?? [];
+    const unit = units[0];
     const capture = unit?.payments?.captures?.[0];
     const captureStatus = capture?.status;
+
+    const expectedSettlement = order.payment?.settlement;
+    const isSplit = expectedSettlement?.mode === 'split';
 
     if (response?.status === 'COMPLETED' || captureStatus === 'COMPLETED' || captureStatus === 'PENDING') {
       checks.statusOk = true;
     }
-    checks.orderRefOk = Boolean(unit && (unit.custom_id === order.orderNumber || unit.invoice_id === order.orderNumber));
+
+    if (isSplit) {
+      // Every seller's unit must reference THIS order. In split mode the reference carries a
+      // per-seller suffix (`SP-…-m1`), so match the prefix rather than the whole string.
+      const refs = units.map((u) => `${u.custom_id ?? ''} ${u.invoice_id ?? ''}`);
+      checks.orderRefOk = refs.length > 0 && refs.every((ref) => ref.includes(order.orderNumber));
+    } else {
+      checks.orderRefOk = Boolean(unit && (unit.custom_id === order.orderNumber || unit.invoice_id === order.orderNumber));
+    }
+
     checks.captureExistsOk = Boolean(capture?.id);
-    if (capture?.amount) {
+    const allCaptures = units.flatMap((u) => u.payments?.captures ?? []);
+
+    if (isSplit) {
+      // The order total is the sum of every seller's capture; a dropped unit is a short payment.
+      const totalCaptured = allCaptures.reduce((sum, c) => sum + Math.round(Number(c.amount?.value ?? 0) * 100), 0);
+      checks.amountOk = allCaptures.length > 0 && totalCaptured === order.amounts.totalMinor;
+      checks.currencyOk = allCaptures.length > 0
+        && allCaptures.every((c) => c.amount?.currency_code === order.amounts.currency);
+    } else if (capture?.amount) {
       const amountMinor = Math.round(Number(capture.amount.value) * 100);
       checks.amountOk = Number.isFinite(amountMinor) && amountMinor === order.amounts.totalMinor;
       checks.currencyOk = capture.amount.currency_code === order.amounts.currency;
     }
     checks.captureStatusOk = captureStatus === 'COMPLETED';
-    if (capture?.id) {
-      const clash = this.store.collection('orders').findOne({ 'payment.paypalCaptureId': capture.id });
-      checks.uniqueOk = !clash || clash._id === order._id;
+
+    // V8 — multi-seller settlement. When the order was created split, every seller's unit must be
+    // present with the exact amount and the same payee we intended. A unit that pays a different
+    // account, or a short amount, means the money went somewhere other than the plan says.
+    if (isSplit) {
+      const settlement = verifySettlement(order, response, { expected: expectedSettlement });
+      checks.settlementOk = settlement.ok;
+      if (!settlement.ok) {
+        logger.error('payment.verify.settlement_mismatch', { orderId: order._id, units: settlement.units, expectedCount: settlement.expectedCount, actualCount: settlement.actualCount });
+      }
+      // Total across every capture must still equal the order total: no unit may be dropped.
+      const totalSettled = allCaptures.reduce((sum, c) => sum + Math.round(Number(c.amount?.value ?? 0) * 100), 0);
+      if (totalSettled !== order.amounts.totalMinor) {
+        checks.settlementOk = false;
+        logger.error('payment.verify.settlement_total_mismatch', { orderId: order._id, totalSettled, expected: order.amounts.totalMinor });
+      }
+    }
+
+    // Every known capture id, for the uniqueness check: a capture id reused across orders is
+    // either a replay or a provider bug, and both must stop the order being marked paid.
+    const captureIds = units.flatMap((u) => u.payments?.captures ?? []).map((c) => c.id).filter(Boolean);
+    if (captureIds.length) {
+      checks.uniqueOk = captureIds.every((id) => {
+        const clash = this.store.collection('orders').findOne({ 'payment.paypalCaptureId': id });
+        return !clash || clash._id === order._id;
+      });
     }
 
     if (captureStatus === 'PENDING') {
@@ -239,7 +352,8 @@ export class PaymentService {
 
   /** Transactional apply. Stock commit failure never leaves the order paid with no goods. */
   async applyCapture({ orderId, attempt, response, verification, auth }) {
-    const capture = response.purchase_units[0].payments.captures[0];
+    const captures = (response.purchase_units ?? []).flatMap((u) => u.payments?.captures ?? []);
+    const capture = captures[0];
     const payerEmail = response.payer?.email_address;
     try {
       const result = await this.store.transact(() => {
@@ -261,6 +375,8 @@ export class PaymentService {
               ...order.payment,
               status: PAYMENT_STATUS.CAPTURED,
               paypalCaptureId: capture.id,
+              // Every seller's capture, so per-merchant reconciliation and refunds stay possible.
+              captures: captures.map((c) => ({ id: c.id, amountMinor: Math.round(Number(c.amount.value) * 100), status: c.status })),
               captureStatus: capture.status,
               amountVerified: true,
               payerId: response.payer?.payer_id,
@@ -272,7 +388,9 @@ export class PaymentService {
             shippingAddress: response.purchase_units[0]?.shipping ?? order.shippingAddress ?? undefined
           }
         );
-        this.order.timeline(orderId, 'payment_captured', 'paypal', { captureId: capture.id, amountVerified: true });
+        this.order.timeline(orderId, 'payment_captured', 'paypal', {
+          captureId: capture.id, amountVerified: true, sellers: captures.length, settlement: order.payment?.settlement?.mode ?? 'single'
+        });
         this.attempts.updateOne(
           { _id: attempt._id },
           {

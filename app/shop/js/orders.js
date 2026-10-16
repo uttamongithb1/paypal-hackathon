@@ -4,6 +4,7 @@
  */
 import { cancelOrder, fetchOrder, fetchOrders, money, retryPayment, state, track, event } from './api.js';
 import { $, h, humanStatus, skeleton, statusTone, toast } from './ui.js';
+import { settlementPanel, settlementBadge } from './settlement.js';
 import { amountBreakdown } from './cards.js';
 
 const statusLine = (order) =>
@@ -11,6 +12,7 @@ const statusLine = (order) =>
     h('span', { class: `badge badge--${statusTone(order.status)}`, text: humanStatus(order.status) }),
     h('span', { class: 'badge', text: `payment: ${humanStatus(order.payment?.status ?? 'none')}` }),
     order.payment?.lastAttemptNo ? h('span', { class: 'badge', text: `attempts: ${order.payment.lastAttemptNo}` }) : null,
+    settlementBadge(order),
     order.payment?.paypalCaptureId ? h('span', { class: 'badge badge--success mono', text: order.payment.paypalCaptureId }) : null
   ]);
 
@@ -71,12 +73,27 @@ export async function renderOrderDetail(orderId) {
     const { order } = await fetchOrder(orderId);
     track([event('order_viewed', { orderId })]);
     const attempts = await import('./api.js').then(({ merchantAttempts }) => null).catch(() => null);
+    // Timeline entries carry `meta`, so reading only `detail` left this column empty and made the
+    // audit trail — the thing that proves what happened to the money — look like it had nothing to
+    // say. Minor-unit values are shown as money; everything else prints as-is.
+    const detailText = (entry) => {
+      const meta = entry.detail ?? entry.meta;
+      if (meta == null) return '—';
+      if (typeof meta !== 'object') return String(meta);
+      const parts = Object.entries(meta).map(([key, value]) => {
+        const label = key.replace(/Minor$/, '');
+        const shown = key.endsWith('Minor') && Number.isFinite(value) ? money(value) : String(value);
+        return `${label} ${shown}`;
+      });
+      return parts.join(' · ').slice(0, 120);
+    };
+
     const timelineRows = (order.timeline ?? []).map((entry) =>
       h('tr', {}, [
         h('td', { text: new Date(entry.at).toLocaleString() }),
         h('td', { text: humanStatus(entry.event) }),
         h('td', { text: entry.actor ?? 'system' }),
-        h('td', { class: 'mono', text: entry.detail ? JSON.stringify(entry.detail).slice(0, 90) : '—' })
+        h('td', { class: 'mono', text: detailText(entry) })
       ])
     );
 
@@ -105,6 +122,8 @@ export async function renderOrderDetail(orderId) {
           h('h3', { text: 'Payment' }),
           amountBreakdown(order.amounts),
           h('div', { class: 'note', text: `Provider: PayPal (${state.env?.paypalMode ?? 'simulator'}) · ${order.payment?.paypalOrderId ?? 'no PayPal order'}` }),
+          // Split settlement is the most interesting thing about this order — show it, don't bury it.
+          settlementPanel(order),
           order.payment?.paypalCaptureId
             ? h('div', { class: 'callout callout--success' }, [
                 h('strong', { text: 'Capture verified' }),

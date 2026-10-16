@@ -52,6 +52,8 @@ is a human act; verification happens server-side.
 | Human approval gate | ✅ | Checkout page: "HUMAN APPROVAL REQUIRED" — only a human click starts payment |
 | Order create + approve + capture | ✅ | Orders v2 create/capture wired end-to-end (simulator mode) |
 | Capture verification | ✅ | Server re-checks amount, currency **and** order id against PayPal before marking paid |
+| **Multi-seller split settlement** ✅ | ✅ *(new, F1)* | One cart spanning N sellers becomes **one PayPal order with one `purchase_units[]` per seller**, each with its own `payee` + `platform_fees` commission. Allocation is largest-remainder exact — the unit tests prove `Σ shares === total` for every amount 0–400 × weights 0–6 — and capture verification (V8) refuses an order unless every seller's unit matches the plan and the parts still add up |
+| Capability-aware fallback ✅ | ✅ *(new, F1)* | `payee`/`platform_fees` need the Marketplaces (`PARTNER_FEE`) capability. `PAYPAL_SETTLEMENT=auto` asks for a split, and on a capability rejection completes the order as a single unit **and states why** — on the order timeline, in analytics, and in the UI. `npm run paypal:settlement` probes a real sandbox account and reports the truth |
 | Failure handling | ✅ | `INSTRUMENT_DECLINED` → safe retry with `actions.restart()`; pending/timeout and cancel paths |
 | Attempt limit | ✅ | Max 3 attempts per order, each recorded in `payment_attempts` |
 | Idempotency | ✅ | Keys like `pp-create\|pp-capture-<orderId>-<attemptNo>`; replay-safe |

@@ -9,6 +9,7 @@ import {
   capturePayment, cancelOrder, fetchOrder, money, paymentStatus, retryPayment, state, track, event
 } from './api.js';
 import { $, h, humanStatus, skeleton, statusTone, toast, openModal } from './ui.js';
+import { settlementPanel, settlementBadge } from './settlement.js';
 import { amountBreakdown } from './cards.js';
 
 let pollTimer = null;
@@ -56,6 +57,8 @@ function payPanel(order) {
         h('strong', { text: 'Payment verified' }),
         h('p', { class: 'note', text: `Capture ${order.payment?.paypalCaptureId} confirmed with PayPal for ${order.amounts.display?.total}. The merchant has been notified.` })
       ]),
+      // Who actually got the money, and whether it was split per seller by PayPal.
+      settlementPanel(order),
       h('a', { class: 'btn btn--secondary btn--block', href: '/orders', 'data-link': 'true', text: 'View my orders' })
     );
     return panel;

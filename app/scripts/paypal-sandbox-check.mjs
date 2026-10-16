@@ -110,7 +110,9 @@ if (captureId) {
 // ── Default: create a real sandbox order ─────────────────────────────────────
 const subtotalMinor = 87_900;
 const shippingMinor = shippingFor(subtotalMinor, { env }).feeMinor;
-const taxMinor = taxFor(subtotalMinor);
+// taxFor needs the configured rate — passing it alone returned NaN, which made this script
+// report a mismatch against a perfectly good account.
+const taxMinor = taxFor(subtotalMinor, env.taxRateBps);
 const syntheticOrder = {
   orderNumber: `SP-PREFLIGHT-${Date.now().toString(36).toUpperCase()}`,
   amounts: { currency: 'USD', subtotalMinor, shippingMinor, taxMinor, totalMinor: subtotalMinor + shippingMinor + taxMinor },

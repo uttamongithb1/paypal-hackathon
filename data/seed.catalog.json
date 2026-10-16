@@ -10,7 +10,9 @@
       "supportEmail": "support@vertex-systems.demo",
       "policies": { "shippingNote": "Ships from the platform warehouse in 1-2 business days.", "returnDays": 30, "warrantyNote": "Manufacturer warranty, serviced through Vertex Systems." },
       "ratingAvg": 4.5,
-      "ratingCount": 1840
+      "ratingCount": 1840,
+      "payeeEmail": "vertex-systems@sandbox.demo",
+      "paypalMerchantId": "SANDBOXVERTEX01"
     },
     {
       "slug": "novatech-retail",
@@ -18,7 +20,9 @@
       "supportEmail": "help@novatech-retail.demo",
       "policies": { "shippingNote": "Same-day dispatch on orders before 3pm.", "returnDays": 14, "warrantyNote": "Manufacturer warranty via NovaTech service centres." },
       "ratingAvg": 4.3,
-      "ratingCount": 2210
+      "ratingCount": 2210,
+      "payeeEmail": "novatech-retail@sandbox.demo",
+      "paypalMerchantId": "SANDBOXNOVA0202"
     },
     {
       "slug": "audiopeak",
@@ -26,7 +30,9 @@
       "supportEmail": "care@audiopeak.demo",
       "policies": { "shippingNote": "Audio gear ships with protective packaging in 2-3 days.", "returnDays": 30, "warrantyNote": "24-month AudioPeak warranty on all audio products." },
       "ratingAvg": 4.6,
-      "ratingCount": 980
+      "ratingCount": 980,
+      "payeeEmail": "audiopeak@sandbox.demo",
+      "paypalMerchantId": "SANDBOXAUDIO303"
     }
   ],
   "categories": [

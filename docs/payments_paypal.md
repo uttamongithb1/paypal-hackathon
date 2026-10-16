@@ -74,6 +74,81 @@ Rules:
 
 ---
 
+## 3a. Multi-seller settlement (as-built, added during the build)
+
+> **Status:** implemented in `app/server/payments/settlement.mjs` + `paypal.gateway.mjs` +
+> `payment.service.mjs`; covered by `app/tests/unit/settlement.test.mjs` and
+> `app/tests/integration/split-settlement.test.mjs`. Everything below is verified behaviour, not a plan.
+
+A ShopPilot cart can hold items from several sellers (5 of the 7 original demo orders do). Sending one
+`purchase_units[0]` with no `payee` means PayPal pays **the API caller** — the platform — and the
+sellers are silently never paid. The multi-seller flow fixes that with one order per basket:
+
+```jsonc
+// POST /v2/checkout/orders  (intent CAPTURE)
+{ "purchase_units": [
+    { "reference_id": "m1",                       // required whenever there is more than one unit
+      "custom_id": "SP-2026-000123:m1",           // orderNumber:unit — matches webhooks back to us
+      "invoice_id": "SP-2026-000123-m1",
+      "amount": { "currency_code": "USD", "value": "1243.80",
+                  "breakdown": { "item_total": {...}, "tax_total": {...}, "shipping": {...} } },
+      "payee": { "email_address": "vertex-systems@sandbox.demo",
+                 "merchant_id": "SANDBOXVERTEX01" },
+      "payment_instruction": {
+        "disbursement_mode": "INSTANT",           // or DELAYED (funds held until release)
+        "platform_fees": [ { "amount": { "currency_code": "USD", "value": "62.19" } } ] } },
+    { "reference_id": "m2", "payee": { ... }, "payment_instruction": { ... } } ] }
+```
+
+### Allocation is exact, never floating point
+
+`apportion(totalMinor, weights)` uses **largest-remainder** so `Σ shares === total` for every input
+(the unit test proves it exhaustively for amounts 0–400 × three weights 0–6). Tax and shipping are
+apportioned by the same weights as the items, so each seller's unit is a real, self-consistent order:
+`item_total + tax + shipping === value` per unit. If the parts ever failed to sum to the order total,
+`settlementPlan()` refuses to split and falls back rather than sending money it cannot reconcile.
+
+`platformFeeFor(amountMinor, bps)` is rounded and **clamped to `amount - 1`** — a fee that consumed
+the whole unit would be rejected by PayPal.
+
+### Capture verification gains V8
+
+| # | Check | Failure |
+|---|---|---|
+| V8 | For a `split` order: every planned unit is present exactly once, its `reference_id` matches the plan, `payee.email_address` is the account we intended, the capture is `COMPLETED`, and **`Σ capture.amount === order.amounts.totalMinor`** | `PAYMENT_VERIFICATION_FAILED` (`checks.settlementOk=false`), order stays unpaid, `error` logged with per-unit detail |
+
+V2 and V4 become settlement-aware for split orders (reference is matched by prefix because each unit
+carries an `-m1`-style suffix; the amount check sums every unit instead of reading unit 0). **V1–V7 are
+unchanged for single-unit orders.** Every capture is persisted at `payment.captures[]` (id, amount,
+status) alongside the primary `payment.paypalCaptureId`, so per-seller reconciliation and refunds stay
+possible.
+
+### The capability gate, and the honest fallback
+
+`payee` and `platform_fees` require the **PayPal Complete Payments Platform for Marketplaces and
+Platforms** capability (`PARTNER_FEE`); PayPal answers an unsupported account with
+`MSP_NOT_SUPPORTED` / a payment-instruction error. The documented flow also needs a **business**
+account — a self-serve *individual* sandbox app can never enable it.
+
+`PAYPAL_SETTLEMENT` decides what happens:
+
+| Value | Behaviour |
+|---|---|
+| `split` | always build one unit per seller (fails loudly if the account cannot) |
+| `single` | one unit for the whole basket — the pre-F1 behaviour, byte for byte |
+| `auto` *(default)* | ask for a split; on a capability rejection, **fall back to a single unit and record why** |
+
+The fallback is never silent. It writes `payment.settlement.mode='single'` + `reason[]`, appends a
+`settlement_fallback` timeline entry, emits a `payment_settlement_fallback` analytics event, and the UI
+prints *"Paid as a single payment (not split per seller)"* with the reason. A demo that names its own
+limitation is worth more than one that implies a split that never happened.
+
+**Probe your own account before recording anything:** `npm run paypal:settlement` creates a real
+two-seller sandbox order, reads back `purchase_units[].payee`, and reports the verdict truthfully
+(it runs against the simulator too, clearly labelled as such).
+
+---
+
 ## 4. Capture verification (`verifyCapture`) — the safety core
 
 ```ts
@@ -90,6 +165,7 @@ V4 | `Number(capture.amount.value) * 100 === order.amounts.totalMinor` (integer 
 V5 | `capture.amount.currency_code === order.amounts.currency` | `VERIFY_MISMATCH`
 V6 | `capture.status === 'COMPLETED'` | `pending`/`failed` mapping
 V7 | `capture.id` not already attached to a **different** order | `DUPLICATE_CAPTURE` → alert P1, do not mark paid
+V8 | *(as-built)* split orders: per-seller units, payees and `Σ amounts === total` all match the plan | see §3a — `PAYMENT_VERIFICATION_FAILED`, order stays unpaid
 
 On success the service writes, in a **single Mongo transaction**:
 1. `order.status = 'paid'`, `paidAt`, `payment.status='captured'`, `payment.paypalCaptureId=capture.id`, `payment.captureStatus`, `payment.amountVerified=true`, `payment.payerId`, `payment.payerEmailHash = sha256(payerEmail + PEPPER)`, `shippingAddress` (from `purchase_units[0].shipping` or `payer` when present).

@@ -169,6 +169,29 @@ Validation rules enforced by `env.ts` at boot: `JWT_SECRET` ≥ 32 chars; `PAYPA
 7. Re-run `pnpm job:reconcile` and `pnpm demo` to confirm the connection; a `GET /readyz` should report `paypal: ok`.
 8. The tunnel URL changes on every restart — update the webhook URL and `PAYPAL_WEBHOOK_ID` when it does (the runbook `docs/runbooks.md` covers this).
 
+**Multi-seller settlement (as-built, F1).** A ShopPilot basket can span several sellers, and a
+correct multi-seller order needs the *Complete Payments Platform for Marketplaces and Platforms*
+capability (`PARTNER_FEE`) on the app — plus a **business** sandbox account to create the app in the
+first place (an individual/personal account can never enable it). Three variables control it:
+
+```bash
+PAYPAL_SETTLEMENT=auto          # auto | split | single  (see docs/payments_paypal.md §3a)
+PLATFORM_FEE_BPS=500            # ShopPilot's 5% commission, per seller unit
+PAYPAL_DISBURSEMENT_MODE=INSTANT  # INSTANT | DELAYED
+PAYPAL_SIM_SPLIT_UNSUPPORTED=false  # simulator only: pretend the account cannot split, to test the fallback
+```
+
+Ask your own account what it supports before recording a demo — this creates a real two-seller
+sandbox order and reads the payees straight back out of it:
+
+```bash
+npm run paypal:settlement                     # ~5s verdict, exits 0 either way
+npm run paypal:settlement -- --capture <id>   # after a sandbox buyer approves: per-seller captures
+```
+
+If the capability is missing, keep `PAYPAL_SETTLEMENT=auto`: the app completes the order as a single
+unit and *says so* in the UI, the timeline and analytics. That is the intended behaviour, not a bug.
+
 Note for CI/previews: webhooks are unnecessary. The capture endpoint works synchronously, and the nightly sandbox job is the only place that needs a live tunnel.
 
 ---

@@ -121,6 +121,19 @@ Approve it as a sandbox **buyer** account, then:
 npm run paypal:check -- --capture <paypalOrderId>   # prints the real capture id
 ```
 
+**Splitting one basket between several sellers** needs the *Complete Payments Platform for
+Marketplaces and Platforms* capability (`payee` + `platform_fees`), which requires a **business**
+sandbox account. Ask your own account what it supports before recording a demo:
+
+```bash
+npm run paypal:settlement                    # creates a real 2-seller sandbox order, reads the payees back
+npm run paypal:settlement -- --capture <id>  # after a buyer approves: one capture per seller
+```
+
+Control it with `PAYPAL_SETTLEMENT=auto|split|single` (default `auto`). `auto` asks for a split and,
+if the account cannot do it, completes the order as a single unit **and says so** in the UI, the order
+timeline and analytics — see `docs/payments_paypal.md` §3a.
+
 ---
 
 ## Run the AI on a real model
@@ -149,7 +162,7 @@ server/
   payments/           paypal.gateway.mjs  → PaypalSandbox (real API) | PaypalSimulator (in-process)
   store/              Document store (JSON-file now, Mongo driver stub for MONGO_URI)
   domain/             Order state machine, analytics event catalogue, business policies
-scripts/              seed · reset · ledger-check · smoke · demo · product art · paypal:check
+scripts/              seed · reset · ledger-check · smoke · demo · product art · paypal:check · paypal:settlement
 tests/                unit (money, state machine, requirement parsing, intents) · integration (HTTP)
 docs/                 Full engineering doc set — PRD, API spec, agent spec, payments, security, runbooks
 ```

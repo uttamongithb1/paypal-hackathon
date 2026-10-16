@@ -74,6 +74,16 @@ export const env = {
   paypalClientSecret: str('PAYPAL_CLIENT_SECRET'),
   paypalEnv: str('PAYPAL_ENV', 'sandbox'),
   paypalWebhookId: str('PAYPAL_WEBHOOK_ID'),
+  // Multi-merchant settlement (docs/payments_paypal.md · WIN_PLAN F1).
+  //   single → one purchase unit, platform is the recipient (the historical behaviour)
+  //   split  → one purchase unit per seller with `payee` (+ platform_fees when enabled)
+  //   auto   → try split, fall back to single if PayPal refuses the capability, and say so
+  paypalSettlement: str('PAYPAL_SETTLEMENT', 'auto'),
+  platformFeeBps: int('PLATFORM_FEE_BPS', 500),
+  paypalDisbursementMode: str('PAYPAL_DISBURSEMENT_MODE', 'INSTANT'),
+  // Test/demo switch: make the simulator behave like a sandbox account that is NOT enabled for
+  // multi-seller payments, so the `auto` fallback path is exercisable without real credentials.
+  paypalSimSplitUnsupported: bool('PAYPAL_SIM_SPLIT_UNSUPPORTED', false),
   paypalTimeoutMs: int('PAYPAL_TIMEOUT_MS', 10_000),
   paymentMaxAttempts: int('PAYMENT_MAX_ATTEMPTS', 3),
   quoteTtlMinutes: int('QUOTE_TTL_MINUTES', 15),

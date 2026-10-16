@@ -727,6 +727,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .callout strong { display: block; margin-bottom: 3px; }
 .callout--warning { border-left-color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 7%, var(--color-surface-1)); }
 .callout--danger  { border-left-color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface-1)); }
+/* ── Multi-seller settlement (F1) ──────────────────────────────────────────
+   One PayPal order can pay several sellers in a single approval. The panel below is what makes
+   that visible: who was paid, how much, and what the platform kept — plus an explicit statement
+   when the account could not split and the basket went through as one payment. */
+.settlement { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.settlement__table td, .settlement__table th { font-size: 12.5px; }
+.settlement__row--mine { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+.settlement__row--mine td { font-weight: 600; }
+.settlement .table-wrap { margin-top: 0; }
+
 .callout--success { border-left-color: var(--color-success); background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface-1)); }
 .callout--agent   { border-left-color: var(--color-agent); background: color-mix(in srgb, var(--color-agent) 6%, var(--color-surface-1)); }
 
