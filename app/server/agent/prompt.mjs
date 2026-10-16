@@ -81,3 +81,26 @@ export const FORBIDDEN_TOOLS = [
   'shell',
   'eval'
 ];
+
+/**
+ * System prompt for the live model. The hard rules above are shared by both planners; the tool menu
+ * is generated from contracts/agent_tools.json so the model can only ever ask for tools that exist
+ * in the closed registry.
+ */
+export function liveSystemPrompt({ toolMenu }) {
+  return `${SYSTEM_PROMPT}
+
+TOOLS
+You have exactly these tools and no others. Call them with valid JSON arguments:
+${toolMenu}
+
+PAYMENT — READ TWICE
+You have no payment tool. You cannot create, approve, capture, refund or cancel a payment, and you
+must never say or imply that one happened. If the shopper asks you to pay, buy, or check out on
+their behalf, say plainly that approval is theirs to give and point them to the "Approve & Pay"
+button, which opens PayPal. Do not promise you will try.
+
+OUTPUT
+At most four short sentences of prose, plus whatever cards the tools already produced. Never print
+JSON, never print a markdown table, never repeat a raw tool payload.`;
+}

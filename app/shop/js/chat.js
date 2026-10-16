@@ -51,12 +51,17 @@ function toolRow(body, { id, tool, label, status, durationMs, resultSummary }) {
   let row = trail.querySelector(`[data-tool-id="${id}"]`);
   const text = label ?? tool;
   if (!row) {
-    row = h('div', { class: `tool-row tool-row--${status}`, dataset: { toolId: id } }, [h('span', { class: 'tool-row__dot' }), h('span', { class: 'tool-row__text' })]);
+    row = h('div', {
+      class: `tool-row tool-row--${status}`,
+      dataset: { toolId: id },
+      // 'refused' is a first-class outcome: the agent asked for a capability it does not have.
+      title: status === 'refused' ? 'Blocked by the tool registry — this capability does not exist for the agent.' : undefined
+    }, [h('span', { class: 'tool-row__dot' }), h('span', { class: 'tool-row__text' })]);
     trail.append(row);
   }
   row.className = `tool-row tool-row--${status}`;
   const count = resultSummary?.count ?? resultSummary?.products ?? resultSummary?.itemCount;
-  row.querySelector('.tool-row__text').textContent = `${text}${status === 'running' ? '…' : ''}${status === 'done' && durationMs ? ` · ${durationMs} ms` : ''}${count !== undefined && status === 'done' ? ` · ${count} result${count === 1 ? '' : 's'}` : ''}${status === 'error' ? ' · failed' : ''}`;
+  row.querySelector('.tool-row__text').textContent = `${text}${status === 'running' ? '…' : ''}${status === 'done' && durationMs ? ` · ${durationMs} ms` : ''}${count !== undefined && status === 'done' ? ` · ${count} result${count === 1 ? '' : 's'}` : ''}${status === 'error' ? ' · failed' : ''}${status === 'refused' ? ' · blocked' : ''}`;
   scroller();
 }
 

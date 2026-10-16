@@ -490,6 +490,9 @@ input:focus, select:focus, textarea:focus {
 .tool-row--running .tool-row__dot { background: var(--color-agent); animation: pulse 1.1s infinite ease-in-out; }
 .tool-row--done .tool-row__dot { background: var(--color-success); }
 .tool-row--error .tool-row__dot { background: var(--color-danger); }
+/* A capability the agent does not have: deliberately distinct from a failure. */
+.tool-row--refused { color: var(--color-warning, #b45309); }
+.tool-row--refused .tool-row__dot { background: var(--color-warning, #b45309); }
 .tool-row__text { font-variant-numeric: tabular-nums; }
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
 @keyframes ring {

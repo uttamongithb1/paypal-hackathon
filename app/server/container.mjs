@@ -13,6 +13,7 @@ import PaymentService from './services/payment.service.mjs';
 import { createPaypalGateway } from './payments/paypal.gateway.mjs';
 import ToolRegistry from './agent/tools.mjs';
 import Orchestrator from './agent/orchestrator.mjs';
+import { createLlmClient } from './agent/llm.mjs';
 import logger from './lib/logger.mjs';
 import env from './config/env.mjs';
 
@@ -35,9 +36,23 @@ export async function buildContainer({ store: providedStore } = {}) {
   payment.gateway = gateway;
 
   const tools = new ToolRegistry({ store, catalogue, cart, quote, order, inventory, analytics, env, logger });
-  const orchestrator = new Orchestrator({ store, session, catalogue, cart, quote, order, payment, inventory, analytics, tools, logger });
 
-  return { store, analytics, catalogue, inventory, cart, quote, session, order, payment, gateway, tools, orchestrator, logger, env };
+  // The live model client exists only when a key is configured AND the flag is on. When `enabled`
+  // is false the orchestrator never touches it and the deterministic planner runs the turn — the
+  // fallback is a property of the wiring, not a code path that can silently rot.
+  const llm = createLlmClient({
+    baseUrl: env.llmBaseUrl,
+    apiKey: env.featureLiveLlm ? env.llmApiKey : '',
+    model: env.llmModel,
+    temperature: env.llmTemperature,
+    perCallTimeoutMs: env.llmPerCallTimeoutMs,
+    maxRetries: env.llmMaxRetries,
+    logger
+  });
+
+  const orchestrator = new Orchestrator({ store, session, catalogue, cart, quote, order, payment, inventory, analytics, tools, llm, logger });
+
+  return { store, analytics, catalogue, inventory, cart, quote, session, order, payment, gateway, tools, llm, orchestrator, logger, env };
 }
 
 export default buildContainer;

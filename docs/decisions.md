@@ -28,6 +28,14 @@ Consequences: what this makes easy/hard, and what to revisit
 **Decision:** `search_products` returns a deterministic `score`, `matched`, `unmet` and a machine-written `whyItFits`; the model may rephrase but not re-order.
 **Consequences:** explainable, testable results; the model cannot invent a "better" product, which occasionally makes it say "I'd pick the one ranked first" instead of arguing — acceptable.
 
+> **Implementation note (2026-10-16).** The reference build in `app/` does **not** ship a
+> `FakeLlmClient`. The offline default is a rule-based deterministic planner
+> (`server/agent/orchestrator.mjs` `plan()`), and the live path is a real OpenAI-compatible
+> tool-calling loop (`server/agent/llm.mjs` + `runLiveTurn()`). The two share one closed tool
+> registry, so the capability boundary is identical either way. Where this document says
+> "FakeLlmClient", read "deterministic planner". See `FEATURES.md` and `GAPS.md` for the
+> as-built inventory.
+
 ### DEC-03 — Fake LLM is a first-class adapter, not a test double
 2026-10-16 · accepted · AI
 **Context:** CI must run without keys or network, and demos must survive provider outages.

@@ -83,6 +83,13 @@ export const env = {
   llmApiKey: str('LLM_API_KEY'),
   llmModel: str('LLM_MODEL', 'gpt-4.1-mini'),
   llmTemperature: Number(str('LLM_TEMPERATURE', '0.2')),
+  // Declared so the submission can name the AI tool used (rules requirement) without reading code.
+  llmProvider: str('LLM_PROVIDER', 'openai-compatible'),
+  // Budgets from contracts/agent_tools.json `limits` — the loop is bounded on all three axes.
+  llmMaxIterations: int('LLM_MAX_ITERATIONS', 6),
+  llmPerCallTimeoutMs: int('LLM_PER_CALL_TIMEOUT_MS', 8000),
+  llmTurnTimeoutMs: int('LLM_TURN_TIMEOUT_MS', 45000),
+  llmMaxRetries: int('LLM_MAX_RETRIES', 1),
   budgetGraceBps: int('BUDGET_GRACE_BPS', 300),
   clarifyMaxQuestions: int('CLARIFY_MAX_QUESTIONS', 2),
 

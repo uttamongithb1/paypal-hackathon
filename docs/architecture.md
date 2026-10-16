@@ -203,7 +203,7 @@ Every arrow into PayPal carries an idempotency key; every arrow out is validated
 
 `apps/api/src/config/env.ts` validates with Zod at boot and **fails fast** with a readable list of missing vars. See `docs/env_setup.md` for the full table. Secrets never reach the browser: only `NEXT_PUBLIC_PAYPAL_CLIENT_ID`, `NEXT_PUBLIC_PAYPAL_CURRENCY`, `NEXT_PUBLIC_API_URL` (dev) are public.
 
-Feature flags (env-driven, defaulted for the demo): `FEATURE_LIVE_LLM` (false → deterministic fake LLM for CI), `FEATURE_WEBHOOKS`, `FEATURE_ANALYTICS`, `FEATURE_GUEST_ORDERS`, `PAYMENT_MAX_ATTEMPTS=3`.
+Feature flags (env-driven, defaulted for the demo): `FEATURE_LIVE_LLM` (false → deterministic planner, no model calls — see the implementation note in `decisions.md` DEC-03), `FEATURE_WEBHOOKS`, `FEATURE_ANALYTICS`, `FEATURE_GUEST_ORDERS`, `PAYMENT_MAX_ATTEMPTS=3`.
 
 ---
 

@@ -10,7 +10,7 @@ Docker + Compose | recent | for Mongo (and optional full stack) |
 MongoDB | 8.0 | via Docker locally, Atlas free tier for hosted demos. **Replica set required** (transactions) |
 ngrok (or Cloudflare Tunnel) | any | only needed for PayPal webhooks |
 PayPal Developer account | — | sandbox app + test buyers |
-LLM API key | — | optional: `FEATURE_LIVE_LLM=false` uses the deterministic fake |
+LLM API key | — | optional: `FEATURE_LIVE_LLM=false` uses the deterministic planner (no model) |
 
 Optional: `mongosh`, `mongodb-database-tools` (`mongodump`/`mongorestore`), `k6` for load tests.
 
@@ -99,7 +99,7 @@ PAYMENT_MAX_ATTEMPTS=3
 QUOTE_TTL_MINUTES=15
 
 # ── LLM / agent ─────────────────────────────────────────────────────────
-FEATURE_LIVE_LLM=false             # false → deterministic FakeLlmClient (required in CI)
+FEATURE_LIVE_LLM=false             # false → deterministic planner, zero model calls (CI default)
 LLM_PROVIDER=openai-compat         # openai-compat | anthropic | fake
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=
@@ -128,6 +128,7 @@ FEATURE_CHECKOUT=true
 FEATURE_WEBHOOKS=true
 FEATURE_ANALYTICS=true
 FEATURE_GUEST_ORDERS=true
+FEATURE_LIVE_LLM=false            # true = real model; needs LLM_API_KEY (see §6)
 FEATURE_MERCHANT_DASHBOARD=true
 
 # ── Framing / embedding ─────────────────────────────────────────────────
@@ -174,10 +175,52 @@ Note for CI/previews: webhooks are unnecessary. The capture endpoint works synch
 
 ## 6. LLM provider setup
 
-* **Fake (default, `FEATURE_LIVE_LLM=false`)** — no key needed. The fake client replays scripted tool calls and text for the golden prompts so the whole product is demoable and testable offline. Use this for CI, screenshots and UI work.
-* **OpenAI-compatible** — set `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_PROVIDER=openai-compat`. Works with OpenAI, Azure OpenAI, OpenRouter, Together, Groq, or a local vLLM/Ollama endpoint (`LLM_BASE_URL=http://localhost:11434/v1`, model `qwen2.5:14b-instruct` for a fully offline live model).
-* Model requirements: streaming, multi-call tool use, ≥ 32 k context. Recommended minimums: 8 B-parameter instruct models with reliable JSON tool calls; keep `LLM_TEMPERATURE=0.2`.
-* Cost guardrails are in the agent spec (token budget, max iterations, context trimming). Log `agent_turn_completed` and watch `tokensIn/Out` when tuning.
+Two interchangeable brains sit behind one contract. Both use the same closed tool registry
+(`contracts/agent_tools.json`), the same guardrails and the same SSE frames — only the tool
+*selection* differs.
+
+* **Deterministic planner (default, `FEATURE_LIVE_LLM=false`)** — no key needed. A rule-based intent
+  router with template composition over tool results. Not a language model. It exists so the product
+  is demoable, testable and CI-friendly offline, and so a missing key degrades instead of breaking.
+
+* **Live model (`FEATURE_LIVE_LLM=true`)** — a real tool-calling loop:
+
+  ```bash
+  FEATURE_LIVE_LLM=true
+  LLM_PROVIDER=openai-compatible      # free-text label, recorded on agent_turn_completed
+  LLM_BASE_URL=https://api.openai.com/v1
+  LLM_API_KEY=sk-...
+  LLM_MODEL=gpt-4.1-mini
+  LLM_TEMPERATURE=0.2
+  ```
+
+  Any OpenAI-compatible `/chat/completions` endpoint works, so the provider is a three-variable
+  change with no code change:
+
+  | Provider | `LLM_BASE_URL` | Example `LLM_MODEL` |
+  |---|---|---|
+  | OpenAI | `https://api.openai.com/v1` | `gpt-4.1-mini` |
+  | Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+  | Together | `https://api.together.xyz/v1` | `Qwen/Qwen2.5-72B-Instruct-Turbo` |
+  | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+  | Ollama (offline) | `http://localhost:11434/v1` | `qwen2.5:14b-instruct` |
+
+  Requirements: multi-call tool use and reliable JSON arguments. Keep `LLM_TEMPERATURE` low (0.2).
+
+* **Loop budgets** (defaults from `contracts/agent_tools.json` `limits`): `LLM_MAX_ITERATIONS=6`,
+  `LLM_PER_CALL_TIMEOUT_MS=8000`, `LLM_TURN_TIMEOUT_MS=45000`, `LLM_MAX_RETRIES=1`. The loop is
+  bounded on all three axes; exceeding a budget degrades to the deterministic planner, never hangs.
+
+* **Honest labels.** `message.end.usage.profile` and the `agent_turn_completed` event report what
+  *actually ran*: `live`, `live-degraded`, `live-iteration-capped`, `live-grounding-corrected`,
+  `deterministic-fallback`, or `deterministic`. A turn served by the rule-based planner is never
+  labelled `live`, even when the flag is on.
+
+* **Verified without a key.** `tests/evals/live-agent.test.mjs` drives the real loop against a
+  scripted OpenAI-compatible provider (`tests/helpers/fake-provider.mjs`) over the real SSE
+  endpoint, so the loop, the registry, argument validation and the grounding check are all covered
+  in CI. That provider is a **test fixture, not an AI** — the submission names the real model in the
+  write-up.
 
 ---
 
@@ -220,7 +263,7 @@ Agent answers without products | `FEATURE_LIVE_LLM=true` but the model is not ca
 
 - [ ] `COOKIE_SECURE=true`, `COOKIE_DOMAIN` set, `NODE_ENV=production`, real TLS
 - [ ] `PAYPAL_ENV=sandbox` visible in `/version` and the footer discloses the sandbox
-- [ ] `FEATURE_LIVE_LLM` decision recorded (fake model is acceptable for a demo, but say so on the page)
+- [ ] The model actually used is named on the submission page (rules require naming the AI tool)
 - [ ] Rate limits configured for the expected audience
 - [ ] Logs shipped or at least `LOG_LEVEL=info` and redaction verified
 - [ ] `pnpm ledger:check` clean on the hosted DB

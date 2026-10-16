@@ -16,6 +16,9 @@ import { formatMoney } from '../lib/money.mjs';
 import { objectId } from '../lib/crypto.mjs';
 import { CLARIFY_QUESTIONS, describeRequirement, extractRequirement, requirementChanged, requirementChips } from './requirement.mjs';
 import * as components from './components.mjs';
+import { FORBIDDEN_TOOLS, liveSystemPrompt } from './prompt.mjs';
+import { compactToolResult, executableToolNames, parseToolArguments, toOpenAiTools, toolMenu } from './toolBridge.mjs';
+import { LlmError } from './llm.mjs';
 import env from '../config/env.mjs';
 import logger from '../lib/logger.mjs';
 
@@ -176,6 +179,17 @@ export class Orchestrator {
       this.applyClarificationAnswer(pendingClarification, message, ctx);
     }
 
+    // ── Live model path (FEATURE_LIVE_LLM=true) ───────────────────────────
+    // The model drives tool selection through the SAME closed registry the deterministic planner
+    // uses, so the "no tool can move money" invariant is identical for both brains.
+    if (this.deps.llm?.enabled) {
+      const live = yield* this.runLiveTurn({ messageId, message, ctx, session, user, started });
+      if (live.completed) return;
+      // The model was unavailable before anything was shown — degrade honestly, not silently.
+      logger.warn('agent.live_fallback', { reason: live.reason, requestId });
+      ctx.profile = 'deterministic-fallback';
+    }
+
     const plan = await this.plan({ intent, message, ctx });
     const toolCalls = [];
     const componentList = [];
@@ -252,7 +266,7 @@ export class Orchestrator {
     this.deps.analytics.emit('agent_turn_completed', {
       sessionId: session._id,
       userId: user?._id,
-      props: { toolCalls: toolCalls.length, iterations: toolCalls.length, durationMs: Date.now() - started, stopped: false, profile: env.featureLiveLlm ? 'live' : 'deterministic' }
+      props: { toolCalls: toolCalls.length, iterations: toolCalls.length, durationMs: Date.now() - started, stopped: false, profile: ctx.profile ?? 'deterministic' }
     });
 
     if (ctx.candidateIds?.length) {
@@ -269,6 +283,227 @@ export class Orchestrator {
         props: { productCount: ctx.candidateIds.length, revision: ctx.requirement?.revision ?? 0, merchantIds }
       });
     }
+  }
+
+  // ── Live model path ──────────────────────────────────────────────────────
+  /**
+   * Model-driven turn. The LLM picks tools; every call still goes through `tools.call`, the same
+   * registry, the same guards. Bounded on three axes from contracts/agent_tools.json `limits`
+   * (maxToolIterations · perToolTimeoutMs · turnTimeoutMs).
+   *
+   * Returns `{ completed }`. It is false ONLY when the model failed before producing anything the
+   * shopper can see, which is what lets the caller fall back to the deterministic planner without
+   * double-emitting. Once a tool frame has been shown the turn is finished here, honestly.
+   */
+  async *runLiveTurn({ messageId, message, ctx, session, user, started }) {
+    const emit = (event, data) => ({ event, data });
+    const deadline = started + env.llmTurnTimeoutMs;
+    const controller = new AbortController();
+    const remaining = () => Math.max(1500, Math.min(env.llmPerCallTimeoutMs, deadline - Date.now()));
+
+    // Conversation memory: the previous turns, so "the second one" still resolves. The message
+    // that started this turn is already persisted, so drop it and pass it explicitly below.
+    const recent = this.deps.store.collection('chat_messages')
+      .find({ sessionId: session._id }, { sort: { createdAt: -1 }, limit: 12 });
+    const history = recent
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.messageId !== messageId)
+      .reverse()
+      .slice(0, -1)
+      .map((m) => ({ role: m.role, content: String(m.content ?? '').slice(0, 1200) }));
+
+    const messages = [
+      { role: 'system', content: liveSystemPrompt({ toolMenu: toolMenu() }) },
+      ...history,
+      { role: 'user', content: message }
+    ];
+
+    const tools = toOpenAiTools();
+    const toolCalls = [];
+    const componentList = [];
+    const toolPayloads = [];
+    let cartUpdated = null;
+    let emitted = false;
+    let text = '';
+    let iterations = 0;
+    let usage = null;
+    let profile = 'live';
+
+    try {
+      while (iterations < env.llmMaxIterations) {
+        if (Date.now() > deadline) throw new LlmError('LLM_TURN_TIMEOUT', 'The turn exceeded its time budget.');
+        iterations += 1;
+
+        const response = await this.deps.llm.chat({
+          messages,
+          tools,
+          toolChoice: 'auto',
+          signal: controller.signal,
+          timeoutMs: remaining()
+        });
+        usage = response.usage ?? usage;
+
+        if (!response.toolCalls.length) {
+          text = response.text;
+          break;
+        }
+
+        messages.push({
+          role: 'assistant',
+          content: response.text || null,
+          tool_calls: response.toolCalls.map((call) => ({
+            id: call.id, type: 'function', function: { name: call.name, arguments: call.arguments }
+          }))
+        });
+
+        for (const call of response.toolCalls) {
+          const toolId = `t${toolCalls.length + 1}`;
+
+          // A forbidden capability is not merely blocked by prompt — it is absent from the
+          // registry. The model can still ASK, so the refusal is explicit and traced, which is
+          // exactly the property the eval suite asserts.
+          if (FORBIDDEN_TOOLS.includes(call.name) || !executableToolNames().includes(call.name)) {
+            this.deps.analytics.emit('guardrail_triggered', {
+              sessionId: session._id, userId: user?._id, props: { kind: 'forbidden_tool' }
+            });
+            // Shown to the shopper on purpose. A capability that does not exist is only a
+            // trustworthy design if you can watch it refuse — the frame is the proof.
+            yield emit('tool.activity', {
+              id: toolId,
+              tool: call.name,
+              label: `Asked for “${call.name}”`,
+              status: 'refused',
+              durationMs: 0,
+              resultSummary: { refused: true, reason: 'no_such_capability' }
+            });
+            emitted = true;
+            toolCalls.push({ name: call.name, args: {}, status: 'refused', durationMs: 0, resultSummary: { refused: true } });
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              content: JSON.stringify({
+                ok: false,
+                error: {
+                  code: 'TOOL_NOT_AVAILABLE',
+                  message: `There is no "${call.name}" tool. You cannot move money or act outside this store's catalogue. Tell the shopper plainly that you cannot do that and point them to the "Approve & Pay" button.`,
+                  retryable: false
+                }
+              })
+            });
+            continue;
+          }
+
+          yield emit('tool.activity', {
+            id: toolId, tool: call.name, label: this.deps.tools.tools[call.name]?.label ?? call.name, status: 'running'
+          });
+          emitted = true;
+
+          const parsed = parseToolArguments(call.name, call.arguments);
+          const toolStarted = Date.now();
+          const outcome = parsed.ok
+            ? await this.deps.tools.call(call.name, parsed.args, ctx)
+            : { ok: false, error: parsed.error };
+          const durationMs = Date.now() - toolStarted;
+
+          toolCalls.push({
+            name: call.name, args: parsed.args ?? {}, status: outcome.ok ? 'done' : 'error',
+            durationMs, resultSummary: summariseResult(outcome)
+          });
+          yield emit('tool.activity', {
+            id: toolId, tool: call.name, status: outcome.ok ? 'done' : 'error', durationMs, resultSummary: summariseResult(outcome)
+          });
+
+          if (outcome.ok) {
+            for (const component of outcome.components ?? []) {
+              componentList.push(component);
+              yield emit('ui.component', { messageId, component });
+            }
+            if (outcome.cartUpdated) cartUpdated = outcome.cartUpdated;
+            if (outcome.candidateIds) ctx.candidateIds = outcome.candidateIds;
+            if (outcome.requirementPatch) ctx.requirement = { ...ctx.requirement, ...outcome.requirementPatch };
+            ctx.lastOutcome = outcome;
+            ctx.toolResults = [...(ctx.toolResults ?? []), outcome.result];
+            toolPayloads.push(compactToolResult(call.name, outcome.result));
+          }
+
+          messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify(compactToolResult(call.name, outcome.ok ? outcome.result : { error: outcome.error }))
+          });
+        }
+      }
+
+      // Iteration budget spent with tools still in flight: ask once for a closing summary, no tools.
+      if (!text) {
+        const closing = await this.deps.llm.chat({
+          messages: [...messages, { role: 'user', content: 'Summarise what you found for the shopper in at most four short sentences. Do not call any more tools.' }],
+          tools: [],
+          signal: controller.signal,
+          timeoutMs: remaining()
+        });
+        text = closing.text;
+        profile = 'live-iteration-capped';
+      }
+    } catch (error) {
+      logger.warn('agent.live_failed', { code: error.code ?? 'LLM_ERROR', message: error.message, requestId: ctx.requestId });
+      if (!emitted) return { completed: false, reason: error.code ?? 'LLM_ERROR' };
+      // Tool progress is already on screen; restarting the turn would duplicate it. Finish honest.
+      text = 'I hit a problem talking to my model partway through, so I stopped rather than guess at an answer. What I already found is above — ask me again in a moment.';
+      profile = 'live-degraded';
+    }
+
+    // ── Grounding check ───────────────────────────────────────────────────
+    // The model must not state a price that no tool returned. This is enforced, not requested:
+    // an ungrounded figure is traced and the prose is replaced with a tool-derived summary.
+    const ungrounded = findUngroundedPrices(text, toolPayloads);
+    if (ungrounded.length) {
+      this.deps.analytics.emit('guardrail_triggered', {
+        sessionId: session._id, userId: user?._id, props: { kind: 'ungrounded_price' }
+      });
+      logger.warn('agent.ungrounded_price', { requestId: ctx.requestId, amounts: ungrounded.slice(0, 5) });
+      text = groundedSummary(ctx, this.deps.catalogue);
+      profile = 'live-grounding-corrected';
+    }
+
+    const safeText = this.sanitiseOutput(text) || groundedSummary(ctx, this.deps.catalogue);
+    ctx.profile = profile;
+    for (const chunk of chunkText(safeText)) {
+      yield emit('message.delta', { messageId, text: chunk });
+    }
+    if (cartUpdated) yield emit('cart.updated', { cart: publicCart(cartUpdated) });
+
+    yield emit('message.end', this.endPayload({ messageId, text: safeText, ctx, quickReplies: liveQuickReplies(ctx), started }));
+    this.persistAssistant({ session, user, messageId, text: safeText, toolCalls, components: componentList, ctx, stopped: false });
+
+    this.deps.analytics.emit('agent_turn_completed', {
+      sessionId: session._id,
+      userId: user?._id,
+      props: {
+        toolCalls: toolCalls.length,
+        iterations,
+        durationMs: Date.now() - started,
+        stopped: false,
+        profile,
+        model: this.deps.llm.model,
+        provider: env.llmProvider,
+        tokensIn: usage?.prompt_tokens ?? null,
+        tokensOut: usage?.completion_tokens ?? null
+      }
+    });
+
+    if (ctx.candidateIds?.length) {
+      const merchantIds = [...new Set(ctx.candidateIds
+        .map((id) => this.deps.catalogue.getRaw(id)?.merchantId)
+        .filter(Boolean))];
+      this.deps.analytics.emit('recommendation_shown', {
+        sessionId: session._id,
+        userId: user?._id,
+        merchantId: merchantIds[0],
+        props: { productCount: ctx.candidateIds.length, revision: ctx.requirement?.revision ?? 0, merchantIds }
+      });
+    }
+
+    return { completed: true };
   }
 
   // ── Planning ─────────────────────────────────────────────────────────────
@@ -744,7 +979,10 @@ export class Orchestrator {
       usage: {
         tokensIn: Math.ceil(text.length / 4) + 900,
         tokensOut: Math.ceil(text.length / 4),
-        profile: env.featureLiveLlm ? 'live' : 'deterministic',
+        // The profile reports what ACTUALLY ran, never what the flag asked for: a turn served by
+        // the deterministic planner is never labelled live, even when FEATURE_LIVE_LLM is on.
+        profile: ctx.profile ?? 'deterministic',
+        model: ctx.profile?.startsWith('live') ? this.deps.llm?.model ?? null : null,
         durationMs: Date.now() - started
       },
       stopped: false
@@ -769,6 +1007,44 @@ export class Orchestrator {
       .replace(/\s{3,}/g, ' ')
       .trim();
   }
+}
+
+/**
+ * Prices the model stated that no tool in this turn returned. Compared against the compacted tool
+ * payloads in both display and minor-unit form, so "$649.00" matches whether the tool reported
+ * "649.00" or 64900. This is the enforcement behind "never state a price that did not come from a
+ * tool" — the system prompt asks for it, this checks it.
+ */
+function findUngroundedPrices(text, payloads) {
+  const haystack = JSON.stringify(payloads ?? []);
+  const amounts = [...String(text ?? '').matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)/g)].map((m) => m[1].replace(/,/g, ''));
+  return [...new Set(amounts)].filter((amount) => {
+    const numeric = Number(amount);
+    if (!Number.isFinite(numeric)) return false;
+    const minor = String(Math.round(numeric * 100));
+    return !haystack.includes(amount) && !haystack.includes(minor);
+  });
+}
+
+/** A summary built only from tool output — the safe landing when model prose fails grounding. */
+function groundedSummary(ctx, catalogue) {
+  const ids = ctx?.candidateIds ?? [];
+  const first = ids.length && catalogue ? catalogue.getRaw(ids[0]) : null;
+  if (first) {
+    const rest = ids.length - 1;
+    const more = rest > 0 ? ` There ${rest === 1 ? 'is 1 more option' : `are ${rest} more options`} if you want to compare.` : '';
+    return `${first.title}${first.brand ? ` from ${first.brand}` : ''} is ${formatMoney(first.priceMinor)} and in stock.${more} Say "compare the top two" or press Approve & Pay when you are ready — the payment is always approved by you.`;
+  }
+  return 'I have your request. Tell me the category or your budget and I will search the live catalogue.';
+}
+
+/** Contextual follow-ups, mirroring the deterministic planner's chips. */
+function liveQuickReplies(ctx) {
+  const chips = [];
+  if ((ctx?.candidateIds?.length ?? 0) >= 2) chips.push('Compare the top two', 'Add the cheapest to my cart');
+  if (ctx?.cartUpdated) chips.push('What is in my cart', 'Checkout');
+  if (!chips.length) chips.push('Show me laptops', 'Show me headphones');
+  return chips.slice(0, 3);
 }
 
 function summariseResult(outcome) {

@@ -1,3 +1,8 @@
+<!-- AS-BUILT NOTE: the reference implementation in app/ is a single Express service with a
+     vanilla-JS frontend. This document is a plan written for a pnpm+Turborepo monorepo with
+     Next.js and MongoDB; ticket IDs here do not map 1:1 to the shipped code. See FEATURES.md
+     (what exists), GAPS.md (what is missing) and the app/ tree for the artifact. -->
+
 # ShopPilot AI — Implementation Plan
 
 A build order an AI coding agent (or a small team) can execute milestone by milestone. Each milestone ends at a **demoable, tested** state. Ticket IDs reference `docs/backlog.md`.
