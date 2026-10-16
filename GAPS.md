@@ -3,10 +3,10 @@
 Audited against the running code, not the docs. Verified 2026-10-16 against `dev-up.sh`,
 `npm run verify`, and greps of `server/`, `shop/js/`, `scripts/`, `tests/`.
 
-**Headline:** the app is a *working* product demo — the commerce, payment-safety and dashboard
-layers are real and tested. It is not yet a *functional submission*: two pieces are labelled but
-absent (the LLM, MongoDB), one test suite doesn't exist so the documented gate fails, and nothing
-has ever been deployed or executed against real PayPal.
+**Headline (updated 2026-10-16 after MOV-1):** the app is a *working* product demo with a real
+model-driven agent behind `FEATURE_LIVE_LLM`, and `npm run verify` is green and read-only. What
+remains for a *functional submission*: a real provider key, a real PayPal sandbox capture, a hosted
+URL, and the video. MongoDB is still a deliberate stub — see A3.
 
 ---
 
@@ -15,7 +15,16 @@ has ever been deployed or executed against real PayPal.
 These are the things that stop it being "fully functional". Nothing else on this page matters until
 these are done.
 
-### A1 — There is no LLM. The "AI" is a rule-based intent router. 🔴
+### A1 — ~~There is no LLM~~ ✅ **FIXED 2026-10-16**
+
+**Done:** `server/agent/llm.mjs` (OpenAI-compatible client) + `Orchestrator.runLiveTurn()` (bounded
+tool-calling loop over the same closed registry) + `server/agent/toolBridge.mjs` (contract → tool
+schemas + argument validation). A model that asks for a payment capability is refused on screen and
+traced; a price no tool returned is caught and replaced. Profiles are honest. Covered by
+`tests/evals/live-agent.test.mjs` (8/8), which runs with no API key by driving a scripted
+protocol-compatible provider.
+
+**Still outstanding:** run it once against a real provider and name that model in the submission.
 
 **Evidence:** the only outbound `fetch()` calls in the entire server are in
 `server/payments/paypal.gateway.mjs` (OAuth token + Orders v2). `orchestrator.plan()` is a
@@ -50,7 +59,11 @@ moment is a model visibly choosing tools.
 
 ---
 
-### A2 — `npm run verify` fails; `tests/evals/` does not exist. 🔴
+### A2 — ~~`npm run verify` fails~~ ✅ **FIXED 2026-10-16**
+
+`tests/evals/` now exists (live-agent evals, 8/8), and `verify` is split: `npm run verify` is
+read-only (tests + ledger) while `npm run verify:demo` is the destructive reset+seed path. Verified
+by fingerprinting the store before and after a `verify` run — unchanged.
 
 **Evidence:** `verify` = `reset && seed --demo-orders && test && ledger`, and `test` =
 `node --test tests/unit tests/integration tests/evals`. The last path doesn't exist:

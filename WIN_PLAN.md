@@ -71,7 +71,12 @@ sponsor prize** alongside it — six slots, and it's a table library we can inte
 
 ## 3. The five moves that win (ranked by points-per-hour)
 
-### MOV-1 · Make the AI real 🔴 survival · ~10 h
+### MOV-1 · Make the AI real ✅ **DONE 2026-10-16** (needs one real provider key)
+
+Shipped: a provider-agnostic OpenAI-compatible client, a bounded tool-calling loop over the existing
+closed registry, a visible + traced refusal when the model asks for a payment capability, grounding
+enforcement on prices, honest profile labels, and 8 evals that pass with no API key.
+**Outstanding:** point it at a real provider once and name that model in the submission.
 A provider-agnostic client (any OpenAI-compatible `/chat/completions` — OpenAI, Groq, Together,
 DeepSeek, or local Ollama) plus a genuine tool-calling loop over the **existing** 14-tool registry,
 bounded by the limits `ai_agent_spec.md` §4 already specifies (6 iterations / 8 s / 45 s). Keep the

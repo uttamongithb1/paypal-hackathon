@@ -20,6 +20,7 @@ Verified against the running app on port 4000 (file store, 17 collections, 24 pr
 | Policy Q&A | ✅ | `answer_policy` (returns, warranty, shipping) |
 | Remembered preferences | ✅ | `remember_preference`, `set_requirement` |
 | Streaming responses | ✅ | SSE (`POST /chat/stream`), incremental tool-progress frames |
+| **Live model planning** | ✅ | `FEATURE_LIVE_LLM=true` → real tool-calling loop over any OpenAI-compatible endpoint (verified end-to-end against a scripted provider; a real provider key is still needed to name the model) |
 | **No payment tool at all** | ✅ | 14 tools registered; payment abilities are absent by construction, not by prompt |
 
 **The safety property (demo this):** the agent is *structurally* unable to pay. `FORBIDDEN_TOOLS`
@@ -96,6 +97,8 @@ is a human act; verification happens server-side.
 | `smoke.mjs` | ✅ 24/24 (dirties the store) |
 | Ledger invariants | ✅ balance + stock + attempt consistency |
 | Browser journey (Chrome 131) | ✅ chat → 4 cards → cart → checkout, zero console/HTTP errors |
+| `tests/evals` (live agent) | ✅ 8/8 — model-driven tool order · forbidden-tool refusal + audit trail · registry has no payment tool · ungrounded price corrected · provider failure falls back honestly · flag-off makes zero model calls |
+| `npm run verify` | ✅ 34/34 tests · 10/10 ledger invariants · **read-only** (`verify:demo` is the destructive one) |
 
 ---
 
@@ -103,8 +106,7 @@ is a human act; verification happens server-side.
 
 | Gap | Impact |
 |---|---|
-| `tests/evals/` does not exist | `npm run test:evals` fails — no agent-quality evals |
-| `FEATURE_LIVE_LLM=false` | Agent runs the deterministic planner; the live-LLM path exists but is unexercised |
+| **No real provider key has been used yet** | The loop is verified against a protocol-compatible scripted provider; a real key is still needed to name the model in the submission |
 | Real PayPal sandbox run | Never executed with live sandbox credentials — no real `captureId` yet |
 | `webhook_events` and `price_history` are empty | Those code paths have never run at runtime |
 | No MCP server / PayPal agent-toolkit integration | Planned Tier 1; the "agent can transact" story currently stops at order preparation |
