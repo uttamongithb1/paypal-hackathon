@@ -239,6 +239,28 @@ export function seedAnalytics(store, { products, merchants, days = 30 }) {
     }
   }
 
+  // The agent is the product, but the seeder emitted no agent events at all — so the merchant
+  // dashboard reported "0 agent turns · 0 recommendations shown" on a shop whose entire premise is
+  // an agent. One turn per six views, with the recommendation attributed to the product the session
+  // was already looking at, so the number is consistent with the funnel rather than invented.
+  let agentTurns = 0;
+  for (const event of [...events]) {
+    if (event.name !== 'product_viewed') continue;
+    if (rand() > 1 / 6) continue;
+    agentTurns += 1;
+    const at = new Date(new Date(event.ts).getTime() + 45_000).toISOString();
+    events.push({
+      eventId: uuid(), name: 'agent_turn_completed', ts: at, source: 'server', sessionId: event.sessionId,
+      merchantId: event.merchantId,
+      props: { toolCalls: 1 + Math.floor(rand() * 3), iterations: 1, durationMs: 1800 + Math.floor(rand() * 2600), stopped: false, profile: 'live' }
+    });
+    events.push({
+      eventId: uuid(), name: 'recommendation_shown', ts: at, source: 'server', sessionId: event.sessionId,
+      merchantId: event.merchantId, productId: event.productId,
+      props: { productId: event.productId, rank: 1 + Math.floor(rand() * 3), reason: 'matched budget and category' }
+    });
+  }
+
   for (const [reason, count] of Object.entries(failures)) {
     for (let i = 0; i < count; i += 1) {
       events.push({
@@ -257,16 +279,26 @@ export function seedAnalytics(store, { products, merchants, days = 30 }) {
 }
 
 /** Convenience wrapper used by seed.mjs / reset.mjs / tests. */
-export async function seedAll(container, { demoOrders = false, analytics: withAnalytics = true } = {}) {
+export async function seedAll(container, { demoOrders = false, history = false, analytics: withAnalytics = true } = {}) {
   wipe(container.store);
   const catalog = loadCatalog();
   const seeded = seedCatalogue(container.store, catalog);
   let demo = null;
   if (demoOrders) demo = await seedDemoOrders(container, { merchant: seeded.merchants['vertex-systems'], products: seeded.products });
+  // `history` writes orders without touching PayPal, so a hosted instance can boot with a shop that
+  // has a past. Without it the dashboard shows revenue of $0 beside products marked as sold.
+  let historyResult = null;
+  if (history) {
+    historyResult = seedDemoHistory(container.store, {
+      products: seeded.products,
+      customers: Object.values(seeded.users),
+      merchants: Object.values(seeded.merchants)
+    });
+  }
   let analyticsCount = 0;
   if (withAnalytics) analyticsCount = seedAnalytics(container.store, { products: seeded.products, merchants: seeded.merchants });
   await container.store.flush();
-  return { catalog, ...seeded, demo, analyticsCount };
+  return { catalog, ...seeded, demo, history: historyResult, analyticsCount };
 }
 
 export function summary(store) {
@@ -279,4 +311,150 @@ export function summary(store) {
 
 export function money(minor) {
   return formatMoney(minor);
+}
+
+/**
+ * Historical orders, written straight into the store.
+ *
+ * The merchant dashboard had `paid revenue $0.00` beside a product table reading `SOLD 356`, and
+ * the funnel claimed 41 purchases that no order backed. The contradiction was structural: analytics
+ * were seeded from synthetic events, sold counts came from the catalogue fixture, and orders were
+ * never seeded at all — `seedDemoOrders` routes through the real payment service, which would make
+ * live PayPal calls on a host booting into sandbox mode.
+ *
+ * So this writes the orders directly and then *derives* the rest from them: every active product's
+ * soldCount is the quantity actually sold in these orders, and the count of paid orders matches the
+ * funnel's `purchases` target. One source, no disagreement.
+ */
+export function seedDemoHistory(store, { products, customers, merchants = [], days = 30, paidOrders = 41 } = {}) {
+  const now = Date.now();
+  const dayMs = 86_400_000;
+  const active = products.filter((p) => p.status === 'active');
+  const merchantsById = new Map(merchants.map((m) => [m._id, m]));
+  const buyers = customers.filter((u) => u.role === 'customer');
+  const TAX_BPS = 825;
+
+  let seedState = 0x4f2a7;
+  const rand = () => ((seedState = (seedState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const pick = (list) => list[Math.floor(rand() * list.length) % list.length];
+
+  const orders = [];
+  const sold = new Map();
+
+  const build = (when, status) => {
+    const lineCount = rand() < 0.28 ? 2 : 1;
+    const chosen = [];
+    while (chosen.length < lineCount) {
+      const product = pick(active);
+      if (!chosen.some((p) => p._id === product._id)) chosen.push(product);
+    }
+    const lines = chosen.map((product) => {
+      const quantity = rand() < 0.22 ? 2 : 1;
+      sold.set(product._id, (sold.get(product._id) ?? 0) + (status === 'paid' ? quantity : 0));
+      return {
+        productId: product._id,
+        merchantId: product.merchantId,
+        title: product.title,
+        slug: product.slug,
+        imageUrl: product.images?.[0] ?? null,
+        brand: product.brand,
+        unitPriceMinor: product.priceMinor,
+        quantity,
+        lineTotalMinor: product.priceMinor * quantity,
+        currency: 'USD',
+        attributesSnapshot: product.attributes ?? {}
+      };
+    });
+    const subtotalMinor = lines.reduce((sum, l) => sum + l.lineTotalMinor, 0);
+    const taxMinor = Math.round((subtotalMinor * TAX_BPS) / 10_000);
+    const totalMinor = subtotalMinor + taxMinor;
+    const merchantIds = [...new Set(lines.map((l) => l.merchantId))];
+
+    // Split the total across merchants in proportion to their lines, giving the remainder to the
+    // first unit so the units always sum to the total exactly.
+    const perMerchant = new Map();
+    for (const line of lines) perMerchant.set(line.merchantId, (perMerchant.get(line.merchantId) ?? 0) + line.lineTotalMinor);
+    let allocated = 0;
+    const units = [...perMerchant.entries()].map(([merchantId, amountMinor], index, all) => {
+      const gross = index === all.length - 1 ? totalMinor - allocated : Math.round((amountMinor / subtotalMinor) * totalMinor);
+      allocated += gross;
+      const merchant = merchantsById.get(merchantId);
+      return {
+        referenceId: `m${index + 1}`,
+        merchantId,
+        merchantName: merchant?.name ?? 'Merchant',
+        amountMinor: gross,
+        platformFeeMinor: Math.round((gross * 500) / 10_000),
+        payeeEmail: merchant?.payeeEmail ?? `${merchant?.slug ?? 'merchant'}@sandbox.demo`
+      };
+    });
+
+    const buyer = pick(buyers);
+    const orderId = objectId();
+    const createdAt = new Date(when).toISOString();
+    const isPaid = status === 'paid';
+    const seq = store.nextSequence('orderNumber:2026');
+    const orderNumber = `SP-2026-${String(seq).padStart(6, '0')}`;
+
+    return {
+      _id: orderId,
+      createdAt,
+      updatedAt: createdAt,
+      orderNumber,
+      userId: buyer?._id ?? null,
+      sessionId: `seed_h_${orderId.slice(0, 10)}`,
+      merchantIds,
+      status,
+      lines,
+      amounts: { currency: 'USD', subtotalMinor, shippingMinor: 0, taxMinor, totalMinor, taxRateBps: TAX_BPS },
+      quoteId: objectId(),
+      quoteHash: 'h'.repeat(64),
+      contact: { email: buyer?.email ?? 'customer@demo.dev', name: buyer?.displayName ?? 'Demo Customer' },
+      payment: {
+        provider: 'paypal',
+        status: isPaid ? 'captured' : status === 'expired' ? 'failed' : 'created',
+        amountVerified: isPaid,
+        lastAttemptNo: 1,
+        paypalOrderId: `SIMH-${orderId.slice(0, 12).toUpperCase()}`,
+        settlement: { mode: units.length > 1 ? 'split' : 'single', units },
+        ...(isPaid
+          ? {
+              paypalCaptureId: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}`,
+              captures: [{ id: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}`, status: 'COMPLETED', amountMinor: totalMinor }],
+              captureStatus: 'COMPLETED',
+              payerId: 'SIMPAYER',
+              capturedAt: createdAt
+            }
+          : {})
+      },
+      timeline: [{ at: createdAt, status: 'created', detail: 'Order created from quote' }],
+      expiresAt: isPaid ? null : new Date(when + 15 * 60_000).toISOString(),
+      paidAt: isPaid ? createdAt : null,
+      // Marks history as generated so nobody mistakes it for a real transaction while reading the
+      // store by hand. The UI treats these exactly like any other order.
+      demo: true
+    };
+  };
+
+  // The last three days stay unsettled: a couple awaiting payment and one expired, so "orders in
+  // flight" is not zero and the expiry path is visible.
+  for (let i = 0; i < paidOrders; i += 1) {
+    const dayAgo = 3 + Math.floor(rand() * (days - 3));
+    const when = now - dayAgo * dayMs - Math.floor(rand() * 20) * 3600_000;
+    orders.push(build(when, 'paid'));
+  }
+  orders.push(build(now - 2 * 3600_000, 'awaiting_payment'));
+  orders.push(build(now - 26 * 3600_000, 'awaiting_payment'));
+  orders.push(build(now - 30 * 3600_000, 'expired'));
+
+  orders.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  store.collection('orders').insertMany(orders);
+
+  // soldCount is now a fact about the orders, not a fixture number.
+  for (const product of products) {
+    const count = sold.get(product._id) ?? 0;
+    store.collection('products').updateOne({ _id: product._id }, { $set: { soldCount: count } });
+  }
+
+  return { orders: orders.length, paid: paidOrders, unitsSold: [...sold.values()].reduce((a, b) => a + b, 0) };
 }

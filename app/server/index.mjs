@@ -25,8 +25,10 @@ if (env.seedOnBoot) {
     const started = Date.now();
     const { seedAll } = await import('../scripts/seed-lib.mjs');
     // No demo orders on boot: generating them runs through the real payment path, which would make
-    // live PayPal calls (and stall) on a host configured for sandbox mode.
-    const result = await seedAll(container, { demoOrders: false, analytics: true });
+    // live PayPal calls (and stall) on a host configured for sandbox mode. `history` writes the same
+    // orders straight into the store instead — the shop opens with a past (revenue, sold counts and
+    // the funnel all derived from the same orders) without a single network call.
+    const result = await seedAll(container, { demoOrders: false, history: true, analytics: true });
     await container.store.flush();
     logger.info('store.seeded', {
       reason: 'empty store on boot', products: result.products.length,

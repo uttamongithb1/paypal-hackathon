@@ -274,10 +274,19 @@ export function start() {
   const agent = addMessage('agent');
   agent.bubble.textContent = greeting;
   if (requirement) agent.body.append(requirementChipRow(state.chat.requirementChips ?? []));
+  // On a fresh visit the hero above already offers these same three prompts as cards. Rendering
+  // them again a second later, in the composer, showed every prompt twice on one screen. The hero
+  // owns the first screen; the composer strip appears once it has scrolled out of the way.
+  const heroVisible = (() => {
+    const hero = document.querySelector('.hero');
+    return hero ? getComputedStyle(hero).display !== 'none' : false;
+  })();
   setQuickReplies(
     requirement
       ? ['show me more options', 'compare the top 2', 'what is in my cart']
-      : ['laptop for full-stack development under $900', 'phone for photography under $800', 'headphones for flights under $350']
+      : heroVisible
+        ? []
+        : ['laptop for full-stack development under $900', 'phone for photography under $800', 'headphones for flights under $350']
   );
   return escapeHtml(greeting);
 }

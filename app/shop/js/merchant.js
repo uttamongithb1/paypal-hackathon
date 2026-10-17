@@ -35,7 +35,7 @@ export async function renderMerchant() {
 
   if (!state.user || !['merchant', 'admin'].includes(state.user.role)) {
     host.replaceChildren(
-      h('div', { class: 'empty-state' }, [
+      h('div', { class: 'empty-state empty-state--gate' }, [
         h('h3', { text: 'Merchant sign-in required' }),
         h('p', { class: 'note', text: 'Use the seeded merchant account to open the dashboard: merchant@demo.dev / Merchant@12345' }),
         h('button', {
@@ -52,7 +52,18 @@ export async function renderMerchant() {
               toast(error.message, { tone: 'danger' });
             }
           }
-        })
+        }),
+        // The gate used to be a lone card in ~900px of white space, which read as a broken page
+        // rather than a door. Say what is behind it.
+        h('div', { class: 'gate-preview' }, [
+          h('p', { class: 'gate-preview__label', text: 'Behind this sign-in' }),
+          h('ul', { class: 'gate-preview__list' }, [
+            h('li', { text: 'Paid revenue, orders in flight and conversion for the last 7 days' }),
+            h('li', { text: 'The discovery funnel: views → cart → checkout → paid' }),
+            h('li', { text: 'Per-SKU stock, sold counts and low-stock warnings' }),
+            h('li', { text: 'Every settlement split, merchant by merchant' })
+          ])
+        ])
       ])
     );
     return;

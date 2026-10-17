@@ -113,6 +113,10 @@ export class CatalogueService {
    * Unknown/unfilterable keys are rejected (docs/data_model.md §2.6 query translation contract).
    */
   search({ q, category, merchantId, minPriceMinor, maxPriceMinor, inStock, attributes = {}, sort = 'relevance', page = 1, limit = 20, includeOutOfStock = false } = {}) {
+    // A shop should never open with a product nobody can buy. The default and rating sorts put
+    // in-stock items first and rank by rating inside each group; price and recency sorts are left
+    // alone, because there the ordering is the point.
+    const availabilityRank = (p) => (this.availableStock(p) > 0 ? 0 : 1);
     const categoryDoc = category ? this.category(category) : null;
     if (category && !categoryDoc) throw new ApiError('INVALID_CATEGORY', `Unknown category "${category}".`);
 
@@ -184,7 +188,7 @@ export class CatalogueService {
         return 0;
       });
     } else {
-      results = [...results].sort((a, b) => b.ratingAvg - a.ratingAvg);
+      results = [...results].sort((a, b) => availabilityRank(a) - availabilityRank(b) || b.ratingAvg - a.ratingAvg);
     }
 
     const total = results.length;
