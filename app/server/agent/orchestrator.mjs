@@ -352,6 +352,8 @@ export class Orchestrator {
     let iterations = 0;
     let usage = null;
     let profile = 'live';
+    let toolChoice = 'auto';
+    let forcedToolCall = false;
 
     try {
       while (iterations < env.llmMaxIterations) {
@@ -361,16 +363,27 @@ export class Orchestrator {
         const response = await this.deps.llm.chat({
           messages,
           tools,
-          toolChoice: 'auto',
+          toolChoice,
           signal: controller.signal,
           timeoutMs: remaining()
         });
         usage = response.usage ?? usage;
 
         if (!response.toolCalls.length) {
+          // A product request answered without touching the catalogue is grounded in nothing. If
+          // the shopper clearly asked for a product and the model has not searched, make it search
+          // once rather than accept an answer we cannot stand behind. Exactly once: if it still
+          // declines, its prose is taken (and still goes through the grounding check below).
+          if (!forcedToolCall && looksLikeProductRequest(message)) {
+            forcedToolCall = true;
+            toolChoice = 'required';
+            continue;
+          }
           text = response.text;
           break;
         }
+        toolChoice = 'auto';
+        forcedToolCall = true; // a tool has now run; do not force again
 
         messages.push({
           role: 'assistant',
@@ -492,7 +505,7 @@ export class Orchestrator {
     // ── Grounding check ───────────────────────────────────────────────────
     // The model must not state a price that no tool returned. This is enforced, not requested:
     // an ungrounded figure is traced and the prose is replaced with a tool-derived summary.
-    const ungrounded = findUngroundedPrices(text, toolPayloads);
+    const ungrounded = findUngroundedPrices(text, toolPayloads, message);
     if (ungrounded.length) {
       this.deps.analytics.emit('guardrail_triggered', {
         sessionId: session._id, userId: user?._id, props: { kind: 'ungrounded_price' }
@@ -1055,12 +1068,34 @@ export class Orchestrator {
  * "649.00" or 64900. This is the enforcement behind "never state a price that did not come from a
  * tool" — the system prompt asks for it, this checks it.
  */
-function findUngroundedPrices(text, payloads) {
+/**
+ * Does this message ask for a product? Used only to decide whether to insist on one catalogue
+ * lookup before answering. Deliberately textual and cheap: false positives cost one extra tool
+ * call, which is recoverable; false negatives let the agent answer from memory, which is not.
+ */
+function looksLikeProductRequest(message) {
+  const text = String(message ?? '').toLowerCase();
+  if (text.trim().length < 3) return false;
+  if (/\b(hi|hello|hey|thanks|thank you|ok|okay|bye)\b/.test(text) && text.length < 24) return false;
+  return /\b(laptop|phone|headphone|earbud|monitor|screen|display|buy|need|want|looking for|show me|find|recommend|cheapest|best|under|below|budget|compare|cart|checkout|price|in stock|available)\b/.test(text);
+}
+
+/**
+ * Prices in the model's prose that no tool returned.
+ *
+ * The rule exists so the agent cannot invent a price. It must not fire on numbers the shopper
+ * supplied themselves — "your $1,300 budget" is a quote, not a fabrication — which is what it used
+ * to do, replacing an otherwise correct answer with a generic prompt.
+ */
+function findUngroundedPrices(text, payloads, userMessage = '') {
   const haystack = JSON.stringify(payloads ?? []);
+  const said = String(userMessage ?? '');
   const amounts = [...String(text ?? '').matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)/g)].map((m) => m[1].replace(/,/g, ''));
   return [...new Set(amounts)].filter((amount) => {
     const numeric = Number(amount);
     if (!Number.isFinite(numeric)) return false;
+    // Quoted back from the shopper's own message.
+    if (said.includes(amount) || said.includes(amount.replace(/\B(?=(\d{3})+(?!\d))/g, ','))) return false;
     const minor = String(Math.round(numeric * 100));
     return !haystack.includes(amount) && !haystack.includes(minor);
   });
