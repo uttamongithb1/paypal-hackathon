@@ -9,7 +9,7 @@ import {
   capturePayment, cancelOrder, fetchOrder, money, paymentStatus, retryPayment, state, track, event
 } from './api.js';
 import { $, h, humanStatus, skeleton, statusTone, toast, openModal } from './ui.js';
-import { settlementPanel, settlementBadge } from './settlement.js';
+import { settlementPanel, settlementBadge, verificationMatrix } from './settlement.js';
 import { amountBreakdown } from './cards.js';
 
 let pollTimer = null;
@@ -76,6 +76,7 @@ function payPanel(order) {
       ]),
       // Who actually got the money, and whether it was split per seller by PayPal.
       settlementPanel(order),
+      verificationMatrix(order),
       h('a', { class: 'btn btn--secondary btn--block', href: '/orders', 'data-link': 'true', text: 'View my orders' })
     );
     return panel;

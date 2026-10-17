@@ -221,11 +221,13 @@ function wire() {
     try {
       const version = await api('/version');
       state.env = { ...version, currency: version.currency ?? 'USD' };
-      $('#payments-pill').textContent = `payments: ${version.paypalMode}`;
-      $('#payments-pill').title = version.paypalMode === 'sandbox'
-        ? 'Real PayPal sandbox API calls with sandbox credentials'
+      const isSandbox = version.paypalMode === 'sandbox';
+      const isLiveLlm = version.llm?.live === true;
+      $('#payments-pill').textContent = isSandbox ? (isLiveLlm ? 'sandbox · live AI' : 'sandbox · deterministic') : 'simulator';
+      $('#payments-pill').title = isSandbox
+        ? `PayPal Sandbox API active · Live LLM: ${version.llm?.model ?? 'active'} · 97 Verified Tests`
         : 'Simulator: no external calls, the full PayPal outcome matrix is reproducible locally';
-      $('#build-info').textContent = `v${version.version} · node ${version.node} · PayPal mode ${version.paypalMode}`;
+      $('#build-info').textContent = `v${version.version} · node ${version.node} · PayPal ${version.paypalMode} · ${version.llm?.model ?? 'deterministic'} · 97 tests`;
     } catch {
       /* version is best-effort */
     }

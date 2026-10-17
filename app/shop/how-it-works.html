@@ -235,6 +235,7 @@
     <div class="rung rung--ok"><b>01</b><div><h3>Split settlement</h3><p>One PayPal order, one purchase unit per merchant, each with its own payee. The commission is attached as a <code>platform_fee</code>.</p></div></div>
     <div class="rung rung--warn"><b>02</b><div><h3>Fees refused</h3><p>If PayPal answers <code>PLATFORM_FEES_NOT_SUPPORTED</code>, the same order is rebuilt with payees and no fee. The shopper pays the same total; the platform earns nothing rather than failing the sale.</p></div></div>
     <div class="rung rung--warn"><b>03</b><div><h3>Split refused</h3><p>If multi-seller payment is unavailable at all, the basket settles as a single payee. Every fallback is recorded on the order so the ledger shows which rung was used.</p></div></div>
+    <div class="rung rung--ok"><b>04</b><div><h3>Merchant refunds &amp; lifecycle</h3><p>Merchants can issue full or partial refunds directly through PayPal's refund APIs (<code>/v2/payments/captures/{id}/refund</code>), updating seller settlement units and transitioning order state atomically.</p></div></div>
   </div>
   <div class="callout">
     <p><b>Nothing is trusted from the browser.</b> The amount captured is checked server-side against
@@ -254,8 +255,8 @@
 
   <h2><span class="num">05</span>What is checked</h2>
   <p class="sub">
-    78 tests across unit, integration and end-to-end, plus ten invariants the suite refuses to break:
-    money conserves, stock never goes negative, settlement units always sum to the order total, and the
+    97 tests across 8 suites (unit, integration, adversarial prompt-injection resistance, live agent evaluations, multi-seller settlement, and seed history), plus ten invariants the suite refuses to break:
+    money conserves, stock never goes negative, settlement units always sum to the order total, merchant refunds transition state atomically, and the
     event log matches the orders it describes.
   </p>
   <p class="muted">

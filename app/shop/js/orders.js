@@ -4,7 +4,7 @@
  */
 import { cancelOrder, fetchOrder, fetchOrders, money, retryPayment, state, track, event } from './api.js';
 import { $, h, humanStatus, skeleton, statusTone, toast } from './ui.js';
-import { settlementPanel, settlementBadge } from './settlement.js';
+import { settlementPanel, settlementBadge, verificationMatrix } from './settlement.js';
 import { amountBreakdown } from './cards.js';
 
 const statusLine = (order) =>
@@ -124,6 +124,7 @@ export async function renderOrderDetail(orderId) {
           h('div', { class: 'note', text: `Provider: PayPal (${state.env?.paypalMode ?? 'simulator'}) · ${order.payment?.paypalOrderId ?? 'no PayPal order'}` }),
           // Split settlement is the most interesting thing about this order — show it, don't bury it.
           settlementPanel(order),
+          verificationMatrix(order),
           order.payment?.paypalCaptureId
             ? h('div', { class: 'callout callout--success' }, [
                 h('strong', { text: 'Capture verified' }),
