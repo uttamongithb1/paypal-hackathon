@@ -1052,11 +1052,23 @@ export class Orchestrator {
   }
 
   /** Post-processor: no raw JSON, no markdown tables, no foreign links (ai_agent_spec.md §9). */
+  /**
+   * The chat bubble renders plain text, but models emit Markdown. Without this, a judge sees
+   * literal asterisks and horizontal rules ("**1. AudioPeak** ---"). Strip the syntax rather than
+   * render it: no HTML parser to get wrong, no injection surface, and the copy reads the same.
+   */
   sanitiseOutput(text) {
     return String(text)
       .replace(/```[\s\S]*?```/g, '')
       .replace(/https?:\/\/\S+/g, '')
       .replace(/\|.*\|/g, '')
+      .replace(/^\s*#{1,6}\s+/gm, '')          // ATX headings
+      .replace(/\*\*(.+?)\*\*/g, '$1')          // bold
+      .replace(/(^|\s)__(.+?)__(?=\s|$)/g, '$1$2') // underline-bold
+      .replace(/`([^`]+)`/g, '$1')              // inline code
+      .replace(/^\s*[-*_]{3,}\s*$/gm, '')        // horizontal rules
+      .replace(/^\s*[-*]\s+/gm, '· ')            // bullet markers
+      .replace(/\n{3,}/g, '\n\n')
       .replace(/\s{3,}/g, ' ')
       .trim();
   }
