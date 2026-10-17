@@ -374,7 +374,11 @@ export class Orchestrator {
 
         messages.push({
           role: 'assistant',
-          content: response.text || null,
+          // `null` is what OpenAI documents for an assistant message that only calls tools, but
+          // several OpenAI-compatible gateways reject it on the FOLLOW-UP call (which is why the
+          // turn died after the first tool ran, not before it). An empty string is accepted
+          // everywhere and is semantically identical here.
+          content: response.text || '',
           tool_calls: response.toolCalls.map((call) => ({
             id: call.id, type: 'function', function: { name: call.name, arguments: call.arguments }
           }))
@@ -480,6 +484,9 @@ export class Orchestrator {
       // Tool progress is already on screen; restarting the turn would duplicate it. Finish honest.
       text = 'I hit a problem talking to my model partway through, so I stopped rather than guess at an answer. What I already found is above — ask me again in a moment.';
       profile = 'live-degraded';
+      ctx.fallbackReason = error.code ?? 'LLM_ERROR';
+      const detail = describeLlmFailure(error);
+      if (detail) ctx.fallbackDetail = detail;
     }
 
     // ── Grounding check ───────────────────────────────────────────────────
