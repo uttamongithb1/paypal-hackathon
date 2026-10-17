@@ -133,7 +133,8 @@ Back to the home page.
 - **Caption the two claims** as lower-third text: *"No tool can pay"* at 2:24 and *"Split settles to
   two merchants"* at 2:05. Judges skim muted.
 - **Do not read the UI aloud.** "Now I'm clicking the button" wastes the three minutes.
-- Upload to YouTube as **Public or Unlisted**, not Private — Devpost needs a resolvable link.
+- Upload to YouTube as **Public**. The Official Rules say the video "must be uploaded to and made
+  publicly visible on YouTube" — unlisted is a grey area and there is nothing to gain by risking it.
 
 ---
 
