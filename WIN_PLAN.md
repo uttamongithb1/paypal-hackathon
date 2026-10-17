@@ -19,8 +19,11 @@
 | Innovation / Idea | 20% | **7.5** | Multi-merchant split with human-approved spend is genuinely novel. It is not the headline. |
 | Presentation | 20% | **5.0** | No video exists. That is the entire criterion, worth 20%. |
 
-**≈ 6.9 / 10 today. ≈ 8.6 achievable by Nov 12** — almost all of the gain is in Presentation and Impact,
-which are writing-and-recording tasks, not engineering ones. That is the good news.
+**≈ 7.6 / 10 after the Oct 17 build pass** (up from 6.9 measured that morning):
+Design 7.5 → **8.5** (header fixed at every width, dashboards now reconcile, gate no longer empty),
+Technological Implementation 8.5 → **9.0** (`/how-it-works` makes the depth visible).
+Presentation is still **5.0** — the video does not exist. That remains the largest single gap, and
+it is a recording task, not an engineering one.
 
 ---
 
@@ -139,6 +142,16 @@ One HM + Render credits is a realistic, winnable target. $6,000 combined.
 ---
 
 ## 4. The plan, in order
+
+### Done in the Oct 17 build pass
+
+| | |
+|---|---|
+| Responsive header | Fixed at 320–1280px; two faults, both invisible in code review (`4e57c30`) |
+| Dashboard coherence | 44 seeded orders, sold counts derived from them, agent events seeded (`1654d5d`) |
+| `/how-it-works` | The 14 tools, settlement ladder, five rails, test posture (`419fa68`) |
+| Shop polish | In-stock products lead; duplicate prompt chips removed; gate redesigned (same commits) |
+| Video script | `VIDEO_SCRIPT.md`, timed to 2:50 (`7dee57c`) |
 
 ### P0 — the things that gate the submission (do first, in this order)
 
