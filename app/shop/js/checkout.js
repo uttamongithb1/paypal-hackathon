@@ -36,11 +36,28 @@ function timeline(order) {
   }));
 }
 
+const PAYMENT_EYEBROW = {
+  awaiting_payment: 'Human approval required',
+  payment_failed: 'Payment failed — retry below',
+  payment_processing: 'Confirming with PayPal',
+  paid: 'Approved by you, verified by the server',
+  processing: 'Approved by you, verified by the server',
+  shipped: 'Approved by you, verified by the server',
+  delivered: 'Approved by you, verified by the server',
+  cancelled: 'Cancelled',
+  expired: 'Expired before payment'
+};
+
 function payPanel(order) {
   const isSimulator = (state.env?.paypalMode ?? 'simulator') !== 'sandbox';
   const panel = h('div', { class: 'pay-panel pay-panel--approval' }, [
-    h('div', { class: 'row row--between' }, [
-      h('h3', { text: 'Payment' }),
+    h('div', { class: 'pay-panel__head' }, [
+      h('div', {}, [
+        // The eyebrow tracks the actual state. It said "human approval required" next to a Paid
+        // badge once the payment had already been verified, which reads as a bug.
+        h('div', { class: 'pay-panel__eyebrow', text: PAYMENT_EYEBROW[order.status] ?? 'Payment status' }),
+        h('h3', { text: 'Payment' })
+      ]),
       h('span', { class: `badge badge--${statusTone(order.status)}`, text: humanStatus(order.status) })
     ]),
     amountBreakdown(order.amounts),
@@ -108,7 +125,10 @@ function payPanel(order) {
 
 function simulatorControls(order) {
   const host = h('div', { class: 'paypal-sim' }, [
-    h('div', { class: 'note', text: 'PAYPAL_MODE=simulator — no calls leave this machine. Choose the sandbox-buyer outcome you want to see:' }),
+    h('div', { class: 'paypal-sim__head' }, [
+      h('span', { class: 'paypal-sim__tag', text: 'PayPal · simulator' }),
+      h('p', { class: 'note', text: 'No calls leave this machine. Choose the sandbox-buyer outcome you want to see:' })
+    ]),
     h('button', {
       class: 'btn btn--primary btn--block',
       type: 'button',
@@ -254,7 +274,19 @@ export async function renderCheckout(orderId) {
               h('thead', {}, [h('tr', {}, [h('th', { text: 'Item' }), h('th', { class: 'num', text: 'Qty' }), h('th', { class: 'num', text: 'Unit' }), h('th', { class: 'num', text: 'Line total' })])]),
               h('tbody', {}, order.lines.map((line) =>
                 h('tr', {}, [
-                  h('td', {}, [h('div', { text: line.title }), h('div', { class: 'card__merchant', text: line.brand ?? '' })]),
+                  h('td', {}, [
+                    h('div', { class: 'line-item' }, [
+                      // The order snapshots the image at purchase time, so the thumbnail shows what
+                      // was actually bought even if the catalogue changes later.
+                      line.imageUrl
+                        ? h('img', { class: 'line-item__thumb', src: line.imageUrl, alt: '', loading: 'lazy', decoding: 'async' })
+                        : h('div', { class: 'line-item__thumb line-item__thumb--empty' }),
+                      h('div', {}, [
+                        h('div', { class: 'line-item__title', text: line.title }),
+                        h('div', { class: 'card__merchant', text: line.brand ?? '' })
+                      ])
+                    ])
+                  ]),
                   h('td', { class: 'num', text: String(line.quantity) }),
                   h('td', { class: 'num', text: money(line.unitPriceMinor) }),
                   h('td', { class: 'num', text: money(line.lineTotalMinor) })

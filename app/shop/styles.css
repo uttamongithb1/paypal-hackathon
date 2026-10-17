@@ -765,6 +765,14 @@ tbody tr { transition: background 120ms var(--ease-out); }
 tbody tr:hover { background: var(--color-surface-2); }
 tbody tr:last-child td { border-bottom: 0; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.line-item { display: flex; align-items: center; gap: 11px; }
+.line-item__thumb {
+  width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--radius-sm);
+  object-fit: contain; background: #fff; padding: 3px;
+  border: 1px solid var(--color-border);
+}
+.line-item__thumb--empty { background: var(--color-surface-2); border-style: dashed; }
+.line-item__title { font-weight: 600; letter-spacing: -0.008em; }
 
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 13px; }
 .kpi {
@@ -772,9 +780,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   border: 1px solid var(--color-border); border-radius: var(--radius-md);
   padding: 15px 16px; background: var(--color-surface-1); box-shadow: var(--shadow-xs);
 }
-.kpi::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--grad-brand);
-}
+.kpi { border-left: 2px solid var(--color-border); }
 .kpi__label {
   font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--color-text-muted);
@@ -786,15 +792,16 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .funnel { display: flex; flex-direction: column; gap: 11px; }
 .funnel__row { display: grid; grid-template-columns: 150px 1fr 84px; gap: 12px; align-items: center; font-size: 13px; }
-.funnel__track { background: var(--color-surface-2); border-radius: var(--radius-full); height: 11px; overflow: hidden; }
+.funnel__track { background: var(--color-surface-2); border-radius: var(--radius-full); height: 9px; overflow: hidden; }
 .funnel__bar {
-  height: 11px; border-radius: var(--radius-full); background: var(--grad-brand); min-width: 4px;
+  height: 9px; border-radius: var(--radius-full);
+  background: var(--color-accent); min-width: 4px;
   transition: width 600ms var(--ease-out);
 }
 .spark { display: flex; align-items: flex-end; gap: 3px; height: 72px; padding: 4px 0; }
 .spark__bar {
-  flex: 1; background: var(--grad-brand); border-radius: 3px 3px 0 0; min-height: 2px; opacity: 0.9;
-  transition: opacity 160ms;
+  flex: 1; background: var(--color-accent); border-radius: 2px 2px 0 0; min-height: 2px;
+  opacity: 0.28; transition: opacity 160ms var(--ease-out);
 }
 .spark__bar:hover { opacity: 1; }
 
@@ -843,7 +850,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .callout {
-  border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary);
+  border: 1px solid var(--color-border); border-left: 2px solid var(--color-border-strong);
   border-radius: var(--radius-sm); padding: 11px 13px; background: var(--color-surface-2);
   font-size: 13px; line-height: 19px;
 }
@@ -935,16 +942,18 @@ tbody tr:hover { background: var(--color-surface-2); }
   position: sticky; top: 86px; box-shadow: var(--shadow-sm);
 }
 .pay-panel--approval {
-  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 9%, transparent), var(--shadow-md);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
 }
-/* The product's thesis, made visible: the agent proposes, only the human disposes. */
-.pay-panel--approval::before {
-  content: "Human approval required"; display: block; position: relative; z-index: 0;
-  margin: -18px -18px 0; padding: 9px 18px;
-  background: var(--grad-brand); color: #fff;
-  font-size: 11.5px; font-weight: 680; letter-spacing: 0.06em; text-transform: uppercase;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+/* The product's thesis, said once, quietly: the agent proposes, only the human disposes.
+   It used to be a full-width black bar, which shouted the same sentence the copy already makes. */
+.pay-panel__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--color-border);
+}
+.pay-panel__eyebrow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--color-accent); margin-bottom: 3px;
 }
 .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
 .timeline li { display: grid; grid-template-columns: 20px 1fr; gap: 11px; font-size: 13px; align-items: start; }
@@ -955,13 +964,16 @@ tbody tr:hover { background: var(--color-surface-2); }
 .timeline__dot--done { background: var(--color-success); border-color: transparent; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent); }
 .timeline__dot--active { background: var(--color-warning); border-color: transparent; animation: pulse 1.4s infinite; }
 .paypal-sim {
-  border: 1px dashed color-mix(in srgb, var(--paypal-blue) 40%, var(--color-border-strong));
+  border: 1px solid color-mix(in srgb, var(--paypal-blue) 26%, var(--color-border));
   border-radius: var(--radius-md); padding: 15px; display: flex; flex-direction: column; gap: 11px;
-  background: color-mix(in srgb, var(--paypal-blue) 5%, var(--color-surface-1));
+  background: color-mix(in srgb, var(--paypal-blue) 4%, var(--color-surface-1));
 }
-.paypal-sim::before {
-  content: "PayPal · simulator"; font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
-  text-transform: uppercase; color: var(--paypal-blue);
+.paypal-sim__head { display: flex; flex-direction: column; gap: 5px; }
+.paypal-sim__tag {
+  align-self: flex-start;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--paypal-blue); background: color-mix(in srgb, var(--paypal-blue) 10%, transparent);
+  border-radius: var(--radius-xs); padding: 3px 7px;
 }
 #paypal-buttons { min-height: 46px; }
 
