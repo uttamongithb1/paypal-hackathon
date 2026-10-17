@@ -13,7 +13,13 @@ export const cartCount = () =>
 
 export function updateBadge() {
   const badge = $('#cart-count');
-  if (badge) badge.textContent = String(cartCount());
+  const count = cartCount();
+  if (badge) badge.textContent = String(count);
+  // The button's visible text is "Cart" plus the number. An aria-label that said only "Cart" left
+  // the count unannounced and tripped axe's label-content-name-mismatch; on a phone the word is
+  // hidden by CSS, so the label is the only name left. Keep it in step with the badge.
+  const button = $('#cart-button');
+  if (button) button.setAttribute('aria-label', `Cart, ${count} item${count === 1 ? '' : 's'}`);
 }
 
 export function openCart() {

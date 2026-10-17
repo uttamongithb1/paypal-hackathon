@@ -12,7 +12,7 @@
   :root {
     --canvas: #faf9f7; --surface: #ffffff; --surface-2: #f4f2ee;
     --border: #e7e2db; --border-strong: #d8d2c8;
-    --text: #14120f; --muted: #7a746c; --subtle: #5c564e;
+    --text: #14120f; --muted: #6b655d; --subtle: #5c564e;
     --accent: #17458f; --accent-soft: #e8eefb;
     --ink: #14120f; --success: #157347; --warn: #a15c07;
     --radius: 12px; --radius-sm: 8px;
@@ -24,7 +24,7 @@
     :root {
       --canvas: #121110; --surface: #1a1917; --surface-2: #211f1d;
       --border: #2f2c28; --border-strong: #3d3934;
-      --text: #f5f2ed; --muted: #a39c92; --subtle: #c2bbb0;
+      --text: #f5f2ed; --muted: #b3aca2; --subtle: #c2bbb0;
       --accent: #7ba3ea; --accent-soft: #17233c;
       --ink: #f5f2ed; --success: #4cc38a; --warn: #d99a3f;
     }
@@ -35,8 +35,8 @@
     font-family: var(--sans); font-size: 16px; line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-thickness: 2px; }
   .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 96px; }
 
   header.bar {
@@ -107,7 +107,7 @@
   ul.rails b { display: block; margin-bottom: 2px; }
   ul.rails span { color: var(--subtle); font-size: 14px; }
 
-  .foot { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  .foot { max-width: 980px; margin: 0 auto; padding: 22px 24px 0; margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; color: var(--muted); font-size: 13px; }
   .foot a { color: var(--subtle); }
   @media (max-width: 640px) {
     .wrap { padding: 0 16px 64px; }
@@ -137,7 +137,7 @@
   </nav>
 </header>
 
-<div class="wrap">
+<main class="wrap" id="main">
   <section class="lede">
     <span class="eyebrow">Reference implementation · PayPal sandbox</span>
     <h1>An agent that shops.<br><em>A human who pays.</em></h1>
@@ -263,10 +263,12 @@
     · MIT licensed · Deployed on Render, built with PayPal's sandbox APIs and a live language model.
   </p>
 
-  <div class="foot">
+  </main>
+
+  <footer class="foot">
     <span>ShopPilot AI — reference implementation. <b>The agent never pays.</b></span>
     <span><a href="/">Back to the shop</a></span>
-  </div>
+  </footer>
 </div>
 </body>
 </html>

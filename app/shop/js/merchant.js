@@ -36,7 +36,7 @@ export async function renderMerchant() {
   if (!state.user || !['merchant', 'admin'].includes(state.user.role)) {
     host.replaceChildren(
       h('div', { class: 'empty-state empty-state--gate' }, [
-        h('h3', { text: 'Merchant sign-in required' }),
+        h('h1', { text: 'Merchant sign-in required' }),
         h('p', { class: 'note', text: 'Use the seeded merchant account to open the dashboard: merchant@demo.dev / Merchant@12345' }),
         h('button', {
           class: 'btn btn--primary',

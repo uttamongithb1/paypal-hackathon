@@ -221,13 +221,34 @@ export class OrderService {
     return canTransition(order.status, ORDER_STATUS.PAYMENT_PROCESSING) || order.status === ORDER_STATUS.PAYMENT_PROCESSING;
   }
 
+  /**
+   * Revenue is what this merchant was actually paid, not the size of every basket they appear in.
+   *
+   * The old implementation added `amounts.totalMinor` for every order whose `merchantIds` contained
+   * the merchant — so on a two-merchant basket, each merchant's dashboard counted the *other*
+   * merchant's money as its own revenue. In a marketplace this is the number that must not be
+   * wrong, and it directly contradicts the thing the product is selling: one cart, several
+   * merchants, settled separately.
+   *
+   * Each order stores its settlement units, so the merchant's share is their own unit's amount.
+   * Orders written before settlement units existed fall back to the order total, which is exact for
+   * single-merchant baskets and is the only figure available for them.
+   */
   revenue({ merchantId, from, to }) {
     const rows = this.orders.find({
       status: { $in: [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED] },
       ...(merchantId ? { merchantIds: merchantId } : {}),
       ...(from ? { paidAt: { $gte: from } } : {})
     });
-    const revenueMinor = rows.reduce((sum, o) => sum + o.amounts.totalMinor, 0);
+    const share = (order) => {
+      const units = order.payment?.settlement?.units;
+      if (!merchantId || !Array.isArray(units) || units.length === 0) return order.amounts.totalMinor;
+      const own = units.filter((unit) => unit.merchantId === merchantId);
+      // An order that reached a terminal paid state without a unit for this merchant contributes
+      // nothing rather than the whole basket.
+      return own.reduce((sum, unit) => sum + unit.amountMinor, 0);
+    };
+    const revenueMinor = rows.reduce((sum, order) => sum + share(order), 0);
     return { revenueMinor, paidOrders: rows.length, avgOrderValueMinor: rows.length ? Math.round(revenueMinor / rows.length) : 0 };
   }
 

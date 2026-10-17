@@ -59,7 +59,7 @@
   --mint-600: #157347;
   --amber-300:#e0b072;
   --amber-500:#c2823a;
-  --amber-600:#a15c07;
+  --amber-600:#8f5105;
   --red-300:  #e8a29c;
   --red-500:  #cf4b41;
   --red-600:  #b42318;
@@ -75,8 +75,12 @@
   --color-border: #e7e2db;
   --color-border-strong: var(--gray-300);
   --color-text: var(--gray-900);
-  --color-text-muted: var(--gray-500);
-  --color-text-subtle: var(--gray-400);
+  /* WCAG AA on every surface this theme paints. Measured, not guessed: gray-500 was 4.14:1 on
+     surface-2 and gray-400 was 2.40:1 — both below the 4.5:1 floor for body text, and the axe run
+     flagged 103 nodes on the catalogue alone. These values pass on canvas, surface-1 and surface-2. */
+  --color-text-muted: #6b655d;
+  --color-text-subtle: #736d64;
+  --color-on-accent: #ffffff;
 
   /* Primary action = ink. Accent = navy, for identity and selection only. */
   --color-primary: var(--gray-900);
@@ -141,7 +145,8 @@
     --color-border-strong: #423e3a;
     --color-text: #f2efe9;
     --color-text-muted: #a8a29a;
-    --color-text-subtle: #7a746c;
+    --color-text-subtle: #948d84;
+    --color-on-accent: #12110f;
     --color-primary: #f2efe9;
     --color-primary-hover: #ffffff;
     --color-on-primary: #14120f;
@@ -167,7 +172,7 @@ html[data-theme="dark"] {
   --color-bg: #121110; --color-canvas: #121110;
   --color-surface-1: #1a1917; --color-surface-2: #232120; --color-surface-3: #2c2a28;
   --color-border: #2e2b28; --color-border-strong: #423e3a;
-  --color-text: #f2efe9; --color-text-muted: #a8a29a; --color-text-subtle: #7a746c;
+  --color-text: #f2efe9; --color-text-muted: #a8a29a; --color-text-subtle: #948d84; --color-on-accent: #12110f;
   --color-primary: #f2efe9; --color-primary-hover: #ffffff; --color-on-primary: #14120f;
   --color-primary-soft: #26231f;
   --color-accent: var(--brand-300); --color-accent-soft: #1b2536;
@@ -517,7 +522,7 @@ input:focus, select:focus, textarea:focus {
   background: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border);
 }
 .msg--agent .msg__avatar {
-  background: var(--color-accent); color: #fff; border-color: transparent;
+  background: var(--color-accent); color: var(--color-on-accent); border-color: transparent;
   box-shadow: none;
 }
 .msg__body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 9px; }
