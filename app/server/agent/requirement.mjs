@@ -24,17 +24,40 @@ const detectCategory = (text) => {
   return null;
 };
 
+/**
+ * Multipliers people actually type. "under 10k" means ten thousand, not ten — reading the digits and
+ * dropping the suffix turned a 10,000 budget into a 10.00 one, which matched nothing and made the
+ * agent look broken. Indian units are included because this store's shoppers write lakh and crore.
+ */
+const MULTIPLIERS = [
+  [/^(k|thousand)\b/i, 1_000],
+  [/^(lakh|lac|lakhs)\b/i, 100_000],
+  [/^(cr|crore|crores)\b/i, 10_000_000],
+  [/^(m|million|mn)\b/i, 1_000_000]
+];
+
+/** "10k" -> 10000, "1.5k" -> 1500, "2 lakh" -> 200000, "700" -> 700. */
+const applyMultiplier = (digits, suffix) => {
+  const value = Number(String(digits).replace(/,/g, ''));
+  if (!Number.isFinite(value)) return null;
+  if (!suffix) return value;
+  const hit = MULTIPLIERS.find(([pattern]) => pattern.test(suffix));
+  return hit ? value * hit[1] : value;
+};
+
+const AMOUNT = String.raw`(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|lakh|lac|lakhs|cr|crore|crores|m|million|mn)?\b`;
+
 const parseBudget = (text) => {
   const patterns = [
-    /\$\s?(\d[\d,]*)(?:\.\d{2})?/i,
-    /(\d[\d,]*)\s?(?:usd|dollars|dollar|bucks)\b/i,
-    /\b(?:under|below|less than|max|maximum|up to|within|budget(?: of| is)?)\s+\$?(\d[\d,]*)/i
+    new RegExp(String.raw`\$\s?${AMOUNT}`, 'i'),
+    new RegExp(String.raw`${AMOUNT}\s?(?:usd|dollars|dollar|bucks)\b`, 'i'),
+    new RegExp(String.raw`\b(?:under|below|less than|max|maximum|up to|within|budget(?: of| is)?)\s+\$?${AMOUNT}`, 'i')
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(text);
     if (match) {
-      const value = Number(match[1].replace(/,/g, ''));
-      if (Number.isFinite(value) && value > 0) return Math.round(value * 100);
+      const value = applyMultiplier(match[1], match[2]);
+      if (value !== null && Number.isFinite(value) && value > 0) return Math.round(value * 100);
     }
   }
   if (/\bcheap(est)?\b|\bbudget\b|\baffordable\b|\binexpensive\b/i.test(text)) return 'unspecified';

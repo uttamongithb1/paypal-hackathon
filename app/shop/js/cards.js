@@ -32,24 +32,57 @@ const addButton = (productId, quantity = 1, label = 'Add to cart', { tone = 'pri
 
 export function productCard(card, { revision, superseded = false, onDetails, onCompare } = {}) {
   const stock = card.stock?.state === 'in_stock' ? 'in_stock' : card.stock?.state;
+  const rating = card.rating?.avg ?? (typeof card.rating === 'number' ? card.rating : null);
+  const ratingCount = card.rating?.count ?? null;
+  const compareAt = card.price?.compareAtDisplay ?? null;
+  const savingPct =
+    card.price?.compareAtMinor && card.price?.amountMinor && card.price.compareAtMinor > card.price.amountMinor
+      ? Math.round((1 - card.price.amountMinor / card.price.compareAtMinor) * 100)
+      : null;
+
   return h('article', { class: `card${superseded ? ' card--superseded' : ''}`, dataset: { productId: card.productId, revision: String(revision ?? 0) } }, [
     renderProductArt({ ...card, slug: card.slug ?? card.productId }),
     h('div', { class: 'card__body' }, [
       h('div', { class: 'card__head' }, [
         h('div', {}, [
           h('div', { class: 'card__title', text: card.title }),
-          h('div', { class: 'card__merchant', text: [card.brand, card.merchant?.name].filter(Boolean).join(' · ') })
+          h('div', {
+            class: 'card__merchant',
+            text: [...new Set([card.brand, card.merchant?.name].filter(Boolean))].join(' · ')
+          })
         ]),
         h('span', { class: `badge badge--${statusTone(stock)}`, text: card.stock?.state === 'in_stock' ? `${card.stock.available} in stock` : humanStatus(stock ?? 'unknown') })
       ]),
-      h('div', { class: 'card__price', text: priceText(card.price) }),
-      card.whyItFits ? h('p', { class: 'card__why', text: card.whyItFits }) : null,
+      rating
+        ? h('div', { class: 'card__rating' }, [
+            h('span', { class: 'stars', text: '★★★★★' }),
+            h('span', { class: 'card__rating-value', text: rating.toFixed(1) }),
+            ratingCount ? h('span', { class: 'card__rating-count', text: `(${ratingCount})` }) : null
+          ])
+        : null,
+      h('div', { class: 'card__price-row' }, [
+        h('div', { class: 'card__price', text: priceText(card.price) }),
+        compareAt ? h('div', { class: 'card__compare', text: compareAt }) : null,
+        savingPct ? h('span', { class: 'card__saving', text: `−${savingPct}%` }) : null
+      ]),
+      card.whyItFits
+        ? h('p', { class: 'card__why', text: card.whyItFits })
+        : card.description
+          ? h('p', { class: 'card__desc', text: card.description })
+          : null,
       specChips(card.attrs, 4),
       card.slightlyOverBudget ? h('div', { class: 'callout callout--warning', text: 'This one is slightly over the budget you set — say the word if you want it anyway.' }) : null,
       h('div', { class: 'card__foot' }, [
         addButton(card.productId, 1, 'Add to cart'),
-        h('button', { class: 'btn btn--secondary btn--sm', type: 'button', text: 'Details', onclick: () => onDetails?.(card.productId) }),
-        h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Compare', onclick: () => onCompare?.(card.productId) })
+        h('button', {
+          class: `btn btn--secondary btn--sm${onCompare ? '' : ' card__foot-wide'}`,
+          type: 'button',
+          text: 'Details',
+          onclick: () => onDetails?.(card.productId)
+        }),
+        // Compare only exists inside a conversation, where the agent holds the shortlist. On the
+        // catalogue page there is no shortlist yet, so the button is omitted rather than inert.
+        onCompare ? h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Compare', onclick: () => onCompare(card.productId) }) : null
       ])
     ])
   ]);

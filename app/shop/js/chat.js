@@ -214,7 +214,10 @@ export async function openProduct(slugOrId) {
   const modal = openModal({ title: 'Product', body: h('div', { class: 'stack' }, [h('div', { class: 'skeleton' })]) });
   try {
     const { product } = await fetchProduct(slugOrId);
-    const history = await fetchPriceHistory(product.id).catch(() => ({ items: [] }));
+    // Price history is a merchant/admin endpoint. A shopper viewing a product should not ask for it
+    // and get a 403 in the console; only fetch it for the roles that are allowed to see it.
+    const canSeeHistory = ['merchant', 'admin'].includes(state.user?.role);
+    const history = canSeeHistory ? await fetchPriceHistory(product.id).catch(() => ({ items: [] })) : { items: [] };
     modal.querySelector('.modal__head h2').textContent = product.title;
     modal.querySelector('.modal__body').replaceChildren(
       h('div', { class: 'checkout-grid' }, [
@@ -259,6 +262,11 @@ export function resetConversation() {
 }
 
 export function start() {
+  // route() re-enters this view every time the shopper comes back to Shop. The greeting marks the
+  // start of a conversation, not the arrival at a tab, so it is only rendered into an empty log.
+  const log = document.getElementById('chat-log');
+  if (log && log.childElementCount > 0) return '';
+
   const requirement = state.chat?.requirement;
   const greeting = requirement
     ? `Welcome back. I still have your requirement (${humanStatus(requirement.categorySlug ?? 'anything')}). Want me to keep going from there, or start something new?`

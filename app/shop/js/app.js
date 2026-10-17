@@ -12,6 +12,7 @@ import { updateBadge, wireCart } from './cart.js';
 import { renderCheckout } from './checkout.js';
 import { renderOrderDetail, renderOrders } from './orders.js';
 import { renderMerchant } from './merchant.js';
+import { renderCatalogue } from './catalogue.js';
 
 /**
  * The catalogue rail is a companion to the shop view, not a view of its own — it shares the grid
@@ -20,6 +21,7 @@ import { renderMerchant } from './merchant.js';
  */
 const VIEW_PANES = {
   shop: ['shop', 'rail'],
+  catalogue: ['catalogue'],
   orders: ['orders'],
   checkout: ['checkout'],
   merchant: ['merchant']
@@ -28,7 +30,7 @@ const VIEW_PANES = {
 const setView = (view) => {
   const panes = VIEW_PANES[view] ?? [view];
   for (const node of $$('[data-view]')) node.hidden = !panes.includes(node.dataset.view);
-  const nav = { shop: 'shop', orders: 'orders', merchant: 'merchant', checkout: 'orders' }[view];
+  const nav = { shop: 'shop', catalogue: 'catalogue', orders: 'orders', merchant: 'merchant', checkout: 'orders' }[view];
   for (const link of $$('[data-nav]')) link.setAttribute('aria-current', link.dataset.nav === nav && (view === link.dataset.nav || (view === 'checkout' && link.dataset.nav === 'orders')) ? 'page' : 'false');
   $('#main').style.gridTemplateColumns = view === 'shop' ? '' : 'minmax(0, 1fr)';
 };
@@ -46,6 +48,11 @@ async function route() {
   if (orderDetail) {
     setView('orders');
     await renderOrderDetail(orderDetail[1]);
+    return;
+  }
+  if (path === '/catalogue') {
+    setView('catalogue');
+    await renderCatalogue();
     return;
   }
   if (path === '/orders') {

@@ -56,3 +56,33 @@ test('screen size follows the same scoping rule', () => {
   assert.equal(constraint(capped, 'screenIn').op, 'lte');
   assert.equal(constraint(capped, 'screenIn').value, 24);
 });
+
+/**
+ * Budget multipliers. A shopper who types "under 10k" means ten thousand; reading the digits and
+ * dropping the suffix produced a $10.00 budget, which matched nothing and made the agent look like
+ * it had misheard. Reported from the live demo ("i need to buy a mobile phone under 10k" ->
+ * "≤ $10.00").
+ */
+test('a k suffix multiplies the budget instead of being discarded', () => {
+  assert.equal(parse('i need to buy a mobile phone under 10k').budgetMinor, 1_000_000);
+  assert.equal(parse('phone under 10K').budgetMinor, 1_000_000);
+});
+
+test('fractional and spelled-out multipliers resolve to the same number', () => {
+  assert.equal(parse('phone under 1.5k').budgetMinor, 150_000);
+  assert.equal(parse('phone under 10 thousand').budgetMinor, 1_000_000);
+  assert.equal(parse('headphones under 2 lakh').budgetMinor, 20_000_000);
+  assert.equal(parse('laptop under 1 crore').budgetMinor, 1_000_000_000);
+});
+
+test('a plain number is still read as written', () => {
+  assert.equal(parse('laptop under $900').budgetMinor, 90_000);
+  assert.equal(parse('laptop under 900 for coding').budgetMinor, 90_000);
+  assert.equal(parse('laptop under $1,200').budgetMinor, 120_000);
+});
+
+test('a following word is never mistaken for a multiplier', () => {
+  // "900 monitors" must not become 900 million because the next word starts with an m.
+  assert.equal(parse('monitors under 900 monitors').budgetMinor, 90_000);
+  assert.equal(parse('laptop under 900 minimum 16 GB RAM').budgetMinor, 90_000);
+});

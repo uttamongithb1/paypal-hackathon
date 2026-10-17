@@ -69,6 +69,11 @@ duplicate webhooks — entirely in-process. A real PayPal sandbox is one env var
    (`failed → succeeded`), the verification outcome, and a funnel of views → cart adds →
    checkout attempts → purchases.
 
+7. **Browse without talking** — `/catalogue` is the whole store as a grid: real photography,
+   rating, live stock, compare-at price, category filter and search. It renders the *same* card
+   component the agent uses in conversation, fed from the same `/products` endpoint, so the price
+   and stock in a chat reply can never disagree with the shelf.
+
 ---
 
 ## Why this is hard, and what we built for it
@@ -190,6 +195,23 @@ need serverless, the fix is `MONGO_URI` plus the Mongo driver, which is document
 scale-to-zero and ephemeral disk mean the same cold-start issue), or any small VPS with
 `bash dev-up.sh` behind Caddy. Render is recommended only because it is a sponsor and needs no
 Dockerfile.
+
+## Where the product photography comes from
+
+The 24 catalogue photos are imported, at build time, from two public key-less dummy product APIs —
+[DummyJSON](https://dummyjson.com) (laptops, phones, audio) and
+[Fake Store](https://fakestoreapi.com) (monitors) — and vendored into `app/shop/products/` as
+`webp`. Eight form factors that neither API covers were shot locally. Provenance for every file is
+in `data/product-photo-sources.json`; regenerate with:
+
+```bash
+cd app && npm run photos      # re-fetch + normalise (needs ImageMagick); --force re-downloads
+```
+
+The images are **vendored rather than hot-linked** on purpose: this shop's claim is that the server
+knows the stock and the price, and a rate-limited free API at 2am should not be able to leave a
+judge looking at a broken catalogue. Nothing is fetched from either API at request time, and the
+app works offline. Photography is presentation only — it never touches price, stock or ranking.
 
 ## Architecture
 

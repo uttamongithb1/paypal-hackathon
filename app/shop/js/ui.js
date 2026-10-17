@@ -37,7 +37,7 @@ export function h(tag, attrs = {}, children = []) {
   return node;
 }
 
-/* ── Product art: deterministic gradients + category glyphs (no image files to ship) ─────────── */
+/* ── Product art: real photos when the catalogue has them, deterministic glyphs when it does not ── */
 const CATEGORY_GLYPH = {
   laptops: 'M4 6h16v9H4zM3 17h18v2H3z',
   phones: 'M8 3h8v18H8zM11 18.5h2',
@@ -63,10 +63,33 @@ const ART_SPECS = {
 };
 
 /**
- * Deterministic product artwork. No binary assets ship with the repo: the art is generated from the
- * product slug so every item has a stable, on-brand image (see docs/design_system.md §6).
+ * Product imagery: real photography when the catalogue has it, generated art when it does not.
+ *
+ * The generated SVG is always rendered *underneath* the photo, never replaced. That gives three
+ * things at once: an on-brand backdrop while the image downloads, a graceful fallback if a file is
+ * missing or 404s, and no layout shift because the container reserves the space. Photos are lazy —
+ * a chat that renders five cards should not fetch five images the reader never scrolls to.
  */
 export function renderProductArt(product, { size = 'card' } = {}) {
+  const fallback = renderGeneratedArt(product, { size });
+  const photo = product.imageUrl ?? product.images?.[0]?.url ?? null;
+  if (!photo) return fallback;
+
+  return h('div', { class: `product-media product-media--${size}` }, [
+    fallback,
+    h('img', {
+      class: 'product-media__img',
+      src: photo,
+      alt: product.imageAlt ?? product.images?.[0]?.alt ?? `${product.title} product photo`,
+      loading: 'lazy',
+      decoding: 'async',
+      onerror: (event) => event.currentTarget.remove()
+    })
+  ]);
+}
+
+/** Deterministic fallback artwork, generated from the product slug — no asset needed. */
+function renderGeneratedArt(product, { size = 'card' } = {}) {
   const seed = hashOf(product.slug ?? product.title ?? product.id);
   const hue = seed % 360;
   const hue2 = (hue + 38) % 360;

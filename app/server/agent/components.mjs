@@ -16,6 +16,10 @@ export function productCards({ products, revision, relaxed = [], assumptions = [
         productId: product.id ?? product.productId,
         slug: product.slug,
         title: product.title,
+        // Photography is presentation only — it never influences price, stock or ranking. Cards
+        // keep working without it: the client falls back to generated art.
+        imageUrl: product.images?.[0]?.url ?? null,
+        imageAlt: product.images?.[0]?.alt ?? null,
         brand: product.brand,
         merchant: product.merchant ? { id: product.merchant.id, name: product.merchant.name } : null,
         price: product.price,

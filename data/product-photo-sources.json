@@ -1,0 +1,121 @@
+{
+  "$comment": "Photo provenance for data/seed.catalog.json. Regenerate with: node app/scripts/import-product-photos.mjs --force",
+  "sources": {
+    "dummyjson": "https://dummyjson.com",
+    "fakestore": "https://fakestoreapi.com"
+  },
+  "products": {
+    "ascent-book-14-pro": {
+      "source": "dummyjson",
+      "file": "ascent-book-14-pro.webp",
+      "reused": true
+    },
+    "ascent-book-14": {
+      "source": "dummyjson",
+      "file": "ascent-book-14.webp",
+      "reused": true
+    },
+    "vertex-ultra-15": {
+      "source": "dummyjson",
+      "file": "vertex-ultra-15.webp",
+      "reused": true
+    },
+    "vertex-progamer-16": {
+      "source": "dummyjson",
+      "file": "vertex-progamer-16.webp",
+      "reused": true
+    },
+    "novabook-air-13": {
+      "source": "dummyjson",
+      "file": "novabook-air-13.webp",
+      "reused": true
+    },
+    "novabook-studio-15": {
+      "source": "local-generated",
+      "file": "novabook-studio-15.webp"
+    },
+    "playbook-go-14": {
+      "source": "local-generated",
+      "file": "playbook-go-14.webp"
+    },
+    "ascent-book-16-creator": {
+      "source": "local-generated",
+      "file": "ascent-book-16-creator.webp"
+    },
+    "novatech-pulse-5": {
+      "source": "dummyjson",
+      "file": "novatech-pulse-5.webp",
+      "reused": true
+    },
+    "novatech-pulse-5-pro": {
+      "source": "dummyjson",
+      "file": "novatech-pulse-5-pro.webp",
+      "reused": true
+    },
+    "novatech-pulse-4a": {
+      "source": "dummyjson",
+      "file": "novatech-pulse-4a.webp",
+      "reused": true
+    },
+    "vertex-v-phone-12": {
+      "source": "dummyjson",
+      "file": "vertex-v-phone-12.webp",
+      "reused": true
+    },
+    "vertex-v-phone-12-max": {
+      "source": "dummyjson",
+      "file": "vertex-v-phone-12-max.webp",
+      "reused": true
+    },
+    "playbook-lite-4": {
+      "source": "dummyjson",
+      "file": "playbook-lite-4.webp",
+      "reused": true
+    },
+    "aeropeak-aero-anc-studio": {
+      "source": "dummyjson",
+      "file": "aeropeak-aero-anc-studio.webp",
+      "reused": true
+    },
+    "aeropeak-aero-anc-lite": {
+      "source": "dummyjson",
+      "file": "aeropeak-aero-anc-lite.webp",
+      "reused": true
+    },
+    "aeropeak-flight-pro": {
+      "source": "dummyjson",
+      "file": "aeropeak-flight-pro.webp",
+      "reused": true
+    },
+    "aeropeak-studio-one-wired": {
+      "source": "local-generated",
+      "file": "aeropeak-studio-one-wired.webp"
+    },
+    "aeropeak-buds-mini-anc": {
+      "source": "local-generated",
+      "file": "aeropeak-buds-mini-anc.webp"
+    },
+    "vview-24-fhd": {
+      "source": "fakestore",
+      "file": "vview-24-fhd.webp",
+      "reused": true
+    },
+    "novatech-view-ultrawide-34": {
+      "source": "fakestore",
+      "file": "novatech-view-ultrawide-34.webp",
+      "reused": true
+    },
+    "vview-27-qhd": {
+      "source": "local-generated",
+      "file": "vview-27-qhd.webp"
+    },
+    "novatech-view-27-144hz": {
+      "source": "local-generated",
+      "file": "novatech-view-27-144hz.webp"
+    },
+    "vview-32-4k": {
+      "source": "local-generated",
+      "file": "vview-32-4k.webp"
+    }
+  }
+}
