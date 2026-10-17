@@ -2,6 +2,8 @@
 
 **PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI*
 
+**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 97/97 Passing (0 Failed)
+
 A shopper states a job to be done in plain language. An AI agent grounds every recommendation in a
 real catalogue, prepares a real order, and opens a real PayPal checkout — then stops.
 **The agent has no payment tool and no way to obtain one.** Only the human approves; only the
@@ -246,10 +248,11 @@ docs/                 Full engineering doc set — PRD, API spec, agent spec, pa
 
 | Suite | Result |
 |---|---|
-| `node --test tests/unit` | 15/15 |
-| `node --test tests/integration` | 11/11 — real HTTP: cart maths, stock caps, decline → retry → verified capture, replay safety, pending + reconcile, webhook forge/replay, merchant scoping, quote staleness |
-| `node scripts/ledger-check.mjs` | all invariants hold (no order paid without a verified capture, no double capture, stock never negative) |
-| `BASE_URL=http://localhost:4000 npm run smoke` | 24/24 end-to-end against a running server |
+| `npm test` (8 suites) | **97 / 97 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
+| `npm run ledger` | **All 10 invariants hold** (money math, verified capture required, stock never negative, idempotency, zero PII, Monotonic funnel) |
+| `npm run paypal:check` | **PayPal Sandbox Orders v2 API connected** (`api-m.sandbox.paypal.com`), OAuth2 + Order Creation verified |
+| `npm run paypal:settlement` | **Multi-seller split settlement probe verified** with fallback ladder |
+| `npm run smoke` | **24/24 end-to-end smoke tests passing** against running server |
 
 ```bash
 npm run verify     # reset → seed → tests → ledger invariants
