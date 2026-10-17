@@ -171,19 +171,37 @@ export function compactToolResult(name, result) {
   if (!result) return { ok: false };
   if (result.error) return { ok: false, error: result.error };
 
-  const product = (p) => ({
-    id: p.id ?? p.productId,
-    title: p.title,
-    brand: p.brand ?? null,
-    merchant: p.merchant?.name ?? null,
-    price: p.display?.price ?? (typeof p.priceMinor === 'number' ? `$${(p.priceMinor / 100).toFixed(2)}` : null),
-    priceMinor: p.priceMinor ?? p.price?.amountMinor ?? null,
-    stock: p.stock ?? p.available ?? null,
-    rating: p.ratingAvg ?? p.rating ?? null,
-    specs: p.specs ?? p.attributes ?? null,
-    pros: p.pros ?? null,
-    cons: p.cons ?? null
-  });
+  /**
+   * What the model sees of one product.
+   *
+   * This shape is a token budget decision as much as a correctness one: on a free provider tier the
+   * whole turn has to fit inside a per-minute quota, and the full product DTO (every spec row, all
+   * pros and cons, descriptions) pushed a single search result past it — the model was being rate
+   * limited mid-turn. Six attributes and the first two pros/cons are enough to write a grounded
+   * recommendation; the UI components the shopper sees are built from the full DTO server-side and
+   * are unaffected.
+   */
+  const product = (p) => {
+    const attrs = p.attributes ?? {};
+    const topAttrs = Object.entries(attrs)
+      .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+      .slice(0, 6)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ');
+    return {
+      id: p.id ?? p.productId,
+      title: p.title,
+      brand: p.brand ?? null,
+      merchant: p.merchant?.name ?? null,
+      price: p.display?.price ?? (typeof p.priceMinor === 'number' ? `$${(p.priceMinor / 100).toFixed(2)}` : null),
+      priceMinor: p.priceMinor ?? p.price?.amountMinor ?? null,
+      stock: p.stock ?? p.available ?? null,
+      rating: p.ratingAvg ?? p.rating ?? null,
+      attrs: topAttrs || null,
+      pros: (p.pros ?? []).slice(0, 2),
+      cons: (p.cons ?? []).slice(0, 2)
+    };
+  };
 
   switch (name) {
     case 'search_products':
@@ -192,7 +210,7 @@ export function compactToolResult(name, result) {
         count: result.products?.length ?? 0,
         relaxed: result.relaxed ?? [],
         explain: result.explain ?? null,
-        products: (result.products ?? []).slice(0, 10).map(product)
+        products: (result.products ?? []).slice(0, 5).map(product)
       };
     case 'get_product':
       return { ok: true, product: product(result) };

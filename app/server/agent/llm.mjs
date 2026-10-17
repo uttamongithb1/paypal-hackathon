@@ -92,7 +92,7 @@ export function createLlmClient({
           );
           if (!retryable || attempt === maxRetries) throw error;
           lastError = error;
-          await backoff(attempt);
+          await backoff(attempt, retryAfterMs(response, detail));
           continue;
         }
 
@@ -148,4 +148,37 @@ async function safeText(response) {
   try { return await response.text(); } catch { return ''; }
 }
 
-const backoff = (attempt) => new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+/**
+ * How long to wait before retrying.
+ *
+ * Fixed exponential backoff is wrong for rate limits: a 429 that says "try again in 1.02s" fails
+ * identically if we come back after 250ms, and the retry is wasted. Providers put the wait in
+ * `retry-after` (seconds, or an HTTP date) or inside the error text — honour whichever we find,
+ * clamped so a misbehaving header cannot stall a turn past its budget.
+ */
+const parseRetryAfter = (value) => {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  return null;
+};
+
+const retryAfterMs = (response, bodyText) => {
+  const header = parseRetryAfter(response.headers?.get?.('retry-after'));
+  if (header !== null) return header;
+  // Groq and several others embed the wait in prose: "Please try again in 1.02s."
+  const match = /try again in ([\d.]+)\s*(ms|s)\b/i.exec(String(bodyText ?? ''));
+  if (match) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) return match[2].toLowerCase() === 'ms' ? value : value * 1000;
+  }
+  return null;
+};
+
+const backoff = (attempt, suggestedMs = null) => {
+  const base = 250 * 2 ** attempt;
+  const wait = suggestedMs === null ? base : Math.max(base, suggestedMs);
+  return new Promise((resolve) => setTimeout(resolve, Math.min(wait, 5000)));
+};
