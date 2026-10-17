@@ -103,6 +103,26 @@ const parseQuantityFrom = (message) => {
   return wordNumbers[raw] ?? Number(raw) ?? null;
 };
 
+/**
+ * A one-line, human-actionable summary of a model failure. Never includes the API key: only the
+ * HTTP status and the provider's error text, which is what tells you whether the model name is
+ * wrong, the base URL is wrong, or the key was rejected.
+ */
+export function describeLlmFailure(error) {
+  const status = error?.status ? `HTTP ${error.status}` : null;
+  let providerMessage = null;
+  const raw = error?.details?.body;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      providerMessage = parsed?.error?.message ?? parsed?.message ?? null;
+    } catch {
+      providerMessage = raw.slice(0, 160);
+    }
+  }
+  return [status, providerMessage].filter(Boolean).join(' · ').slice(0, 300) || null;
+}
+
 export class Orchestrator {
   constructor(deps) {
     this.deps = deps; // { store, session, catalogue, cart, quote, order, payment, inventory, analytics, tools, logger }
@@ -192,6 +212,7 @@ export class Orchestrator {
       // is unactionable — this is the difference between a demo that can be debugged remotely and
       // one that needs someone with log access.
       ctx.fallbackReason = live.reason ?? 'LLM_UNAVAILABLE';
+      if (live.detail) ctx.fallbackDetail = live.detail;
     }
 
     const plan = await this.plan({ intent, message, ctx });
@@ -450,7 +471,12 @@ export class Orchestrator {
       }
     } catch (error) {
       logger.warn('agent.live_failed', { code: error.code ?? 'LLM_ERROR', message: error.message, requestId: ctx.requestId });
-      if (!emitted) return { completed: false, reason: error.code ?? 'LLM_ERROR' };
+      if (!emitted) {
+        // Surface enough for someone without log access to fix it: the HTTP status and the
+        // provider's own message. "LLM_HTTP_ERROR" alone cannot be acted on; "HTTP 404 model not
+        // found" can.
+        return { completed: false, reason: error.code ?? 'LLM_ERROR', detail: describeLlmFailure(error) };
+      }
       // Tool progress is already on screen; restarting the turn would duplicate it. Finish honest.
       text = 'I hit a problem talking to my model partway through, so I stopped rather than guess at an answer. What I already found is above — ask me again in a moment.';
       profile = 'live-degraded';
@@ -989,6 +1015,7 @@ export class Orchestrator {
         model: ctx.profile?.startsWith('live') ? this.deps.llm?.model ?? null : null,
         // Why a degraded turn degraded, so the failure is diagnosable from the response alone.
         ...(ctx.fallbackReason ? { fallbackReason: ctx.fallbackReason } : {}),
+        ...(ctx.fallbackDetail ? { fallbackDetail: ctx.fallbackDetail } : {}),
         durationMs: Date.now() - started
       },
       stopped: false
