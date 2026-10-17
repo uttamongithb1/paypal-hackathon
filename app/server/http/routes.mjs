@@ -593,7 +593,9 @@ export function registerRoutes(app, c) {
       status: ready ? 'ready' : 'degraded',
       store: { driver: 'file', collections: Object.keys(store.stats()).length, path: env.dataDir },
       paypal,
-      llm: env.featureLiveLlm ? 'live' : 'deterministic',
+      // Report what is actually wired, not what was asked for: a flag with no key can never call a
+      // model, and calling that "live" is precisely the kind of claim this project refuses to make.
+      llm: !env.featureLiveLlm ? 'deterministic' : (env.llmApiKey ? 'live' : 'misconfigured-no-key'),
       flags: { checkout: true, analytics: env.featureAnalytics, guestOrders: env.featureGuestOrders }
     });
   }));

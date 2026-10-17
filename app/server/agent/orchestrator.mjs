@@ -188,6 +188,10 @@ export class Orchestrator {
       // The model was unavailable before anything was shown — degrade honestly, not silently.
       logger.warn('agent.live_fallback', { reason: live.reason, requestId });
       ctx.profile = 'deterministic-fallback';
+      // Carry the reason out to the client. "It fell back" without "because the key was rejected"
+      // is unactionable — this is the difference between a demo that can be debugged remotely and
+      // one that needs someone with log access.
+      ctx.fallbackReason = live.reason ?? 'LLM_UNAVAILABLE';
     }
 
     const plan = await this.plan({ intent, message, ctx });
@@ -983,6 +987,8 @@ export class Orchestrator {
         // the deterministic planner is never labelled live, even when FEATURE_LIVE_LLM is on.
         profile: ctx.profile ?? 'deterministic',
         model: ctx.profile?.startsWith('live') ? this.deps.llm?.model ?? null : null,
+        // Why a degraded turn degraded, so the failure is diagnosable from the response alone.
+        ...(ctx.fallbackReason ? { fallbackReason: ctx.fallbackReason } : {}),
         durationMs: Date.now() - started
       },
       stopped: false
