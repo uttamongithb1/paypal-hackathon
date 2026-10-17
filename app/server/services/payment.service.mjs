@@ -705,6 +705,45 @@ export class PaymentService {
     return stale.length;
   }
 
+  async refundOrder({ orderId, reason = 'Customer return', auth } = {}) {
+    const user = auth?.user;
+    if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
+      throw new ApiError('FORBIDDEN', 'Only merchants or admins can refund orders.');
+    }
+    const order = this.order.find({ orderId });
+    if (user.role === 'merchant' && !order.lines.some((l) => l.merchantId === user.merchantId)) {
+      throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    }
+    const refundable = [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED];
+    if (!refundable.includes(order.status)) {
+      throw new ApiError('INVALID_STATE', `Cannot refund an order in status "${order.status}".`);
+    }
+
+    const captureId = order.payment?.paypalCaptureId;
+    let refundResult = null;
+    if (captureId && this.gateway?.refundCapture) {
+      try {
+        refundResult = await this.gateway.refundCapture(captureId, {
+          amountMinor: order.amounts.totalMinor,
+          currency: order.amounts.currency,
+          note: reason
+        });
+      } catch (err) {
+        logger.error('payment.refund.failed', { orderId, captureId, error: err.message });
+        throw new ApiError('PAYMENT_PROVIDER_ERROR', `PayPal refund failed: ${err.message}`);
+      }
+    }
+
+    const refundId = refundResult?.id ?? `REF-${objectId().slice(0, 8)}`;
+    const updated = this.order.markRefunded(orderId, {
+      merchantId: user.role === 'merchant' ? user.merchantId : undefined,
+      reason,
+      refundId,
+      actor: user.role
+    });
+    return { order: this.order.toDto(updated), refundId };
+  }
+
   /** Strip tokens/PII from a PayPal response before storing it (security_privacy.md §6). */
   strip(response) {
     if (!response || typeof response !== 'object') return undefined;

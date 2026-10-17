@@ -27,8 +27,8 @@ export const ORDER_TRANSITIONS = {
   payment_failed: ['payment_processing', 'cancelled', 'expired'],
   paid: ['processing', 'refunded'],
   processing: ['shipped', 'refunded'],
-  shipped: ['delivered'],
-  delivered: [],
+  shipped: ['delivered', 'refunded'],
+  delivered: ['refunded'],
   cancelled: [],
   expired: [],
   refunded: []

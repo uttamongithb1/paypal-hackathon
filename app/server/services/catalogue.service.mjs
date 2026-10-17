@@ -275,6 +275,8 @@ export class CatalogueService {
       // Already ranked by the weighted matcher above. Re-scoring here with a cruder rule silently
       // undid that ranking — which is why a "laptop" search still interleaved monitors between
       // laptops after the matcher was fixed.
+    } else if (sort === 'relevance' || sort === 'rating') {
+      results = [...results].sort((a, b) => availabilityRank(a) - availabilityRank(b) || b.ratingAvg - a.ratingAvg);
     } else if (sortSpec) {
       results = [...results].sort((a, b) => {
         for (const [k, dir] of Object.entries(sortSpec)) {
@@ -283,8 +285,6 @@ export class CatalogueService {
         }
         return 0;
       });
-    } else {
-      results = [...results].sort((a, b) => availabilityRank(a) - availabilityRank(b) || b.ratingAvg - a.ratingAvg);
     }
 
     const total = results.length;

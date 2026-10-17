@@ -45,6 +45,7 @@ export const schemas = {
     contact: z.object({ email: z.string().email(), name: z.string().max(80).optional() }).strict()
   }).strict(),
   capture: z.object({ paypalOrderId: z.string().min(4).max(64).optional(), simulatedOutcome: z.enum(['approve', 'decline', 'insufficient_funds', 'pending', 'amount_mismatch', 'error']).optional() }).strict(),
+  refundOrder: z.object({ reason: z.string().min(1).max(200).optional() }).strict(),
   chat: z.object({
     sessionId: z.string().min(4).max(80).optional(),
     message: z.string().min(1).max(4000),

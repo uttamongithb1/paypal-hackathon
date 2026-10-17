@@ -5,7 +5,7 @@
  */
 import {
   merchantAnalytics, merchantAttempts, merchantCreateProduct, merchantOrderAction, merchantOrders,
-  merchantOverview, merchantProducts, merchantUpdateProduct, money, state
+  merchantOverview, merchantProducts, merchantRefundOrder, merchantUpdateProduct, money, state
 } from './api.js';
 import { settlementPanel, settlementBadge } from './settlement.js';
 import { $, h, humanStatus, openModal, skeleton, statusTone, toast, closeModal } from './ui.js';
@@ -243,6 +243,23 @@ export async function renderMerchant() {
                             await merchantOrderAction(order.id, { action: 'ship', trackingNumber: `SP${Date.now().toString().slice(-6)}` });
                             toast(`${order.orderNumber} marked shipped`);
                             renderMerchant();
+                          }
+                        })
+                      : null,
+                    ['paid', 'processing', 'shipped'].includes(order.status)
+                      ? h('button', {
+                          class: 'btn btn--ghost btn--sm',
+                          type: 'button',
+                          text: 'Refund',
+                          onclick: async () => {
+                            if (!confirm(`Issue full refund for ${order.orderNumber}? This will execute via PayPal.`)) return;
+                            try {
+                              await merchantRefundOrder(order.id, { reason: 'Merchant return/cancellation' });
+                              toast(`${order.orderNumber} refunded`);
+                              renderMerchant();
+                            } catch (e) {
+                              toast(e.message || 'Refund failed', { tone: 'danger' });
+                            }
                           }
                         })
                       : null

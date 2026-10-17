@@ -41,6 +41,26 @@ test('guest session issues a cart and a CSRF token, and mutations require the to
   assert.equal(noCsrf.body.error.code, 'FORBIDDEN');
 });
 
+test('guest shopper can place an order by providing contact email without signing in', async () => {
+  const client = createClient(base);
+  await client.guest();
+  const { product } = await addProductToCart(client, { quantity: 1 });
+  const quote = await client.call('/checkout/quote', { method: 'POST', body: { extendHolds: true } });
+  assert.equal(quote.status, 200);
+
+  const orderRes = await client.call('/orders', {
+    method: 'POST',
+    body: {
+      quoteId: quote.body.quote.id,
+      quoteHash: quote.body.quote.hash,
+      contact: { email: 'guest.shopper@demo.dev', name: 'Guest Shopper' }
+    }
+  });
+  assert.equal(orderRes.status, 201, `guest order creation failed: ${JSON.stringify(orderRes.body)}`);
+  assert.equal(orderRes.body.order.status, 'awaiting_payment');
+  assert.equal(orderRes.body.order.contact.email, 'guest.shopper@demo.dev');
+});
+
 test('cart maths come from the server, not from the client', async () => {
   const client = await asNewCustomer(base, 'cart-maths');
   const { cart } = await addProductToCart(client, { quantity: 2 });
@@ -291,3 +311,37 @@ test('GET /version publishes exactly what the storefront needs to mount PayPal',
   assert.ok(body.features.analytics === true);
   assert.ok('liveLlm' in body.features, 'judges and the UI need to see whether a real model is on');
 });
+
+test('merchant can refund a paid order, transitioning state and updating payment', async () => {
+  const customer = await asNewCustomer(base, 'refund-cust');
+  const merchant = await asMerchant(base);
+  const prods = await customer.call('/products?category=laptops&limit=20');
+  const product = prods.body.items.find((p) => p.merchant?.slug === 'vertex-systems' || p.brand === 'Vertex Systems');
+  await customer.call('/cart/items', { method: 'POST', body: { productId: product.id, quantity: 1 } });
+  const quote = await customer.call('/checkout/quote', { method: 'POST', body: {} });
+  const orderRes = await customer.call('/orders', {
+    method: 'POST',
+    body: { quoteId: quote.body.quote.id, quoteHash: quote.body.quote.hash, contact: { email: DEMO.customer.email, name: 'Refund Test' } }
+  });
+  const orderId = orderRes.body.order.id;
+  await customer.call(`/payments/${orderId}/capture`, {
+    method: 'POST',
+    body: { paypalOrderId: orderRes.body.payment.paypalOrderId, simulatedOutcome: 'approve' }
+  });
+
+  const paidOrder = await customer.call(`/orders/${orderId}`);
+  assert.equal(paidOrder.body.order.status, 'paid');
+
+  const refundRes = await merchant.call(`/merchant/orders/${orderId}/refund`, {
+    method: 'POST',
+    body: { reason: 'Customer return' }
+  });
+  assert.equal(refundRes.status, 200, JSON.stringify(refundRes.body));
+  assert.equal(refundRes.body.order.status, 'refunded');
+
+  const afterRefund = await customer.call(`/orders/${orderId}`);
+  assert.equal(afterRefund.body.order.status, 'refunded');
+  assert.equal(afterRefund.body.order.payment.status, 'refunded');
+  assert.ok(afterRefund.body.order.payment.refundId);
+});
+

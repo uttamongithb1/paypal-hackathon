@@ -244,6 +244,7 @@ export const merchantAttempts = (orderId) => api(`/merchant/orders/${orderId}/at
 export const merchantCreateProduct = (payload) => api('/merchant/products', { method: 'POST', body: payload });
 export const merchantUpdateProduct = (id, patch) => api(`/merchant/products/${id}`, { method: 'PATCH', body: patch });
 export const merchantOrderAction = (orderId, payload) => api(`/merchant/orders/${orderId}`, { method: 'PATCH', body: payload });
+export const merchantRefundOrder = (orderId, payload = {}) => api(`/merchant/orders/${orderId}/refund`, { method: 'POST', body: payload });
 
 /**
  * Chat over SSE: POST the message, then dispatch frames as they arrive.

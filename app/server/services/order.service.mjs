@@ -191,7 +191,23 @@ export class OrderService {
     if (to === ORDER_STATUS.CANCELLED) patch.cancelledAt = new Date().toISOString();
     if (to === ORDER_STATUS.SHIPPED) patch.shippedAt = new Date().toISOString();
     if (to === ORDER_STATUS.DELIVERED) patch.deliveredAt = new Date().toISOString();
+    if (to === ORDER_STATUS.REFUNDED) patch.refundedAt = new Date().toISOString();
     const updated = this.orders.findOneAndUpdate({ _id: orderId }, { ...patch, $push: { timeline: { at: new Date().toISOString(), event: `status_${to}`, actor, ...(meta ? { meta } : {}) } } });
+    return updated;
+  }
+
+  markRefunded(orderId, { merchantId, reason, refundId, actor = 'merchant' } = {}) {
+    const order = this.find({ orderId });
+    if (merchantId && !order.lines.some((l) => l.merchantId === merchantId)) {
+      throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    }
+    const refundable = [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED];
+    if (!refundable.includes(order.status)) {
+      throw new ApiError('INVALID_STATE', `Cannot refund an order in status "${order.status}".`);
+    }
+    const updated = this.transition(orderId, ORDER_STATUS.REFUNDED, { actor, meta: { reason, refundId } });
+    this.orders.updateOne({ _id: orderId }, { 'payment.status': 'refunded', 'payment.refundId': refundId });
+    this.analytics.emit('order_refunded', { sessionId: order.sessionId, userId: order.userId, orderId, props: { orderId, reason, refundId } });
     return updated;
   }
 

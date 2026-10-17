@@ -223,7 +223,16 @@ export function registerRoutes(app, c) {
   v1.post('/orders', rateLimit(env.rates.checkout), asyncHandler(async (req, res) => {
     const { body } = validate({ body: schemas.createOrder }, req);
     if (!req.auth.session || !req.auth.user) throw new ApiError('UNAUTHENTICATED', 'Start a shopping session first.');
-    if (!req.auth.user.email) throw new ApiError('VALIDATION_ERROR', 'An email address is required to place the order.');
+    const email = req.auth.user.email || body.contact?.email;
+    if (!email) throw new ApiError('VALIDATION_ERROR', 'An email address is required to place the order.');
+    if (!req.auth.user.email && body.contact?.email) {
+      store.collection('users').updateOne({ _id: req.auth.user._id }, {
+        email: body.contact.email,
+        emailLower: body.contact.email.toLowerCase(),
+        displayName: body.contact.name || req.auth.user.displayName
+      });
+      req.auth.user.email = body.contact.email;
+    }
     const key = idempotencyKey(req, { sessionId: req.auth.session._id });
     const work = async () => {
       const created = await order.createFromQuote({ ...body, auth: req.auth });
@@ -512,6 +521,13 @@ export function registerRoutes(app, c) {
     const { body } = validate({ body: schemas.merchantOrderAction }, req);
     const updated = body.action === 'mark_shipped' ? order.markShipped(req.params.orderId, merchantId, body.tracking) : order.cancel(req.params.orderId, { actor: 'merchant' });
     res.json({ order: order.toDto(updated) });
+  }));
+
+  v1.post('/merchant/orders/:orderId/refund', asyncHandler(async (req, res) => {
+    merchantScope(req);
+    const { body } = validate({ body: schemas.refundOrder }, req);
+    const result = await payment.refundOrder({ orderId: req.params.orderId, reason: body?.reason, auth: req.auth });
+    res.json(result);
   }));
 
   v1.post('/merchant/products', asyncHandler(async (req, res) => {

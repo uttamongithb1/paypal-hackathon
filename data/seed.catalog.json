@@ -301,7 +301,7 @@
       "merchantSlug": "vertex-systems",
       "categorySlug": "laptops",
       "priceMinor": 114900,
-      "stock": 2,
+      "stock": 10,
       "attributes": { "ramGb": 32, "storageGb": 2048, "screenIn": 16, "weightG": 2100, "batteryWh": 99, "cpu": "AMD Ryzen 9 8945HS", "gpu": "NVIDIA GeForce RTX 4050 6 GB", "backlitKeyboard": true, "upgradeableRam": true },
       "specs": [
         { "group": "Performance", "key": "gpu", "label": "Graphics", "value": "NVIDIA GeForce RTX 4050 6 GB" },

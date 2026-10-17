@@ -113,9 +113,24 @@ export async function renderCart() {
         : null
     );
     const blocked = cart.items.some((item) => item.unavailable);
+    const isGuest = !state.user?.email || state.user?.role === 'guest';
+    const guestEmailField = isGuest
+      ? h('div', { class: 'field', style: 'margin-bottom: 0.75rem; text-align: left;' }, [
+          h('label', { for: 'cart-guest-email', class: 'label', text: 'Email for receipt & order status' }),
+          h('input', {
+            id: 'cart-guest-email',
+            type: 'email',
+            class: 'input',
+            placeholder: 'guest@demo.dev',
+            value: localStorage.getItem('shoppilot_guest_email') || 'shopper@demo.dev'
+          })
+        ])
+      : null;
+
     foot.replaceChildren(
       amountBreakdown({ subtotalMinor: cart.subtotalMinor, shippingMinor: 0, taxMinor: 0, totalMinor: cart.subtotalMinor, display: { subtotal: cart.display, shipping: '—', tax: '—', total: cart.display } }),
       h('p', { class: 'note', text: 'Shipping and tax are computed server-side at checkout — the agent never guesses them.' }),
+      guestEmailField,
       h('button', {
         class: 'btn btn--primary btn--block',
         type: 'button',
@@ -157,9 +172,15 @@ export async function reviewAndPay() {
       throw Object.assign(new Error('We could not price this cart just now. Please try again.'), { code: 'QUOTE_UNAVAILABLE' });
     }
     track([event('checkout_started', { itemCount: quote.lines?.length ?? 0, totalMinor: quote.amounts?.totalMinor ?? 0, fromSurface: 'checkout' })]);
-    const contact = state.user?.email && state.user.role !== 'guest'
-      ? { email: state.user.email, name: state.user.displayName ?? state.user.email }
-      : null;
+    let email = state.user?.email;
+    let name = state.user?.displayName ?? state.user?.email;
+    if (!email || state.user?.role === 'guest') {
+      const guestInput = $('#cart-guest-email');
+      email = guestInput?.value?.trim() || localStorage.getItem('shoppilot_guest_email') || 'shopper@demo.dev';
+      if (email) localStorage.setItem('shoppilot_guest_email', email);
+      name = name ?? email.split('@')[0];
+    }
+    const contact = email ? { email, name: name || 'Guest Shopper' } : null;
     const result = await createOrder({ quoteId: quote.id, quoteHash: quote.hash, contact });
     toast(`Order ${result.order.orderNumber} created — approve the payment to finish`, { tone: 'success' });
     closeCart();

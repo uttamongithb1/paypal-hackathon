@@ -223,6 +223,15 @@ export class PaypalSimulator {
     return { status: 'VOIDED' };
   }
 
+  async refundCapture(captureId, { amountMinor, currency = 'USD', note } = {}) {
+    return {
+      id: `SIMREF-${objectId().slice(0, 8)}`,
+      status: 'COMPLETED',
+      amount: { value: toPayPalAmount(amountMinor ?? 100), currency_code: currency },
+      note_to_payer: note
+    };
+  }
+
   async verifyWebhook({ headers, body }) {
     // The simulator signs nothing; real verification lives in the sandbox implementation below.
     return { verified: true, event: body };
@@ -367,6 +376,22 @@ export class PaypalSandbox {
       logger.warn('paypal.void.failed', { paypalOrderId, issue: err.issue });
       return { status: 'FAILED' };
     }
+  }
+
+  async refundCapture(captureId, { amountMinor, currency = 'USD', note } = {}) {
+    const payload = {};
+    if (amountMinor) {
+      payload.amount = {
+        value: toPayPalAmount(amountMinor),
+        currency_code: currency
+      };
+    }
+    if (note) payload.note_to_payer = note;
+    return this.request(`/v2/payments/captures/${captureId}/refund`, {
+      method: 'POST',
+      body: payload,
+      requestId: `refund-${captureId}-${Date.now()}`
+    });
   }
 
   async verifyWebhook({ headers, body }) {
