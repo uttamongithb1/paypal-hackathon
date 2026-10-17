@@ -87,11 +87,53 @@ export function csrfGuard() {
       return next(new ApiError('FORBIDDEN', 'CSRF token mismatch.', { status: 403 }));
     }
     const origin = req.get('origin');
-    if (origin && origin !== env.webOrigin && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    if (origin && !isAllowedOrigin(origin, req)) {
       return next(new ApiError('FORBIDDEN', 'Origin not allowed.', { status: 403 }));
     }
     return next();
   };
+}
+
+/**
+ * Is this Origin allowed to make a state-changing request?
+ *
+ * The CSRF defence proper is the double-submit token above; this is defence in depth, so it should
+ * reject *cross-site* requests without needing to be told every URL the app will ever be served
+ * from. Pinning it to a single WEB_ORIGIN meant a deployment failed until someone remembered to set
+ * one more variable — and it failed with "Cannot reach the ShopPilot API", which reads like an
+ * outage rather than a config mistake.
+ *
+ * Allowed: same-origin (Origin matches the Host this request arrived on), any origin listed in
+ * WEB_ORIGIN (comma-separated), the platform-injected RENDER_EXTERNAL_URL, and localhost for dev.
+ * Everything else — a genuinely different site — is still refused.
+ */
+export function isAllowedOrigin(origin, req) {
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  // Same-origin: the browser said where the page came from, and it is the host we were reached on.
+  // Behind a load balancer the public hostname arrives in X-Forwarded-Host (Render, Fly, Cloud Run)
+  // as well as Host, so consider every host the request plausibly names.
+  const hosts = new Set(
+    [req.get('host'), req.get('x-forwarded-host')?.split(',')[0]?.trim(), req.hostname]
+      .filter(Boolean)
+      .map((h) => String(h).replace(/:\d+$/, ''))   // X-Forwarded-Host has no port; Host may
+  );
+  const originHost = parsed.host.replace(/:\d+$/, '');
+  if (hosts.has(originHost)) return true;
+
+  const configured = [env.webOrigin, process.env.RENDER_EXTERNAL_URL]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(','))
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  if (configured.some((value) => value === origin.replace(/\/$/, ''))) return true;
+
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
 /** Fixed-window rate limiter keyed by session (falling back to IP). */
