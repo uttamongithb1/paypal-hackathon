@@ -139,8 +139,19 @@ export function isAllowedOrigin(origin, req) {
 /** Fixed-window rate limiter keyed by session (falling back to IP). */
 export function rateLimit(classSpec) {
   const buckets = new Map();
+  // One bucket per session-or-IP, kept forever: the map only reset counters in place, so a shop
+  // open for judging week accumulated an entry for every visitor and never released one. Sweep
+  // expired buckets opportunistically instead of every request — O(n) but rare, and it bounds the
+  // map to the sessions active inside one window.
+  let lastSweep = Date.now();
+  const sweep = (now) => {
+    if (now - lastSweep < 60_000) return;
+    lastSweep = now;
+    for (const [key, bucket] of buckets) if (now > bucket.resetAt) buckets.delete(key);
+  };
   return (req, res, next) => {
     const now = Date.now();
+    sweep(now);
     const key = `${classSpec}-${req.auth?.session?._id ?? req.ip}`;
     const bucket = buckets.get(key) ?? { count: 0, resetAt: now + classSpec.windowMs };
     if (now > bucket.resetAt) {
