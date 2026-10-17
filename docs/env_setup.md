@@ -223,12 +223,22 @@ Two interchangeable brains sit behind one contract. Both use the same closed too
   | Provider | `LLM_BASE_URL` | Example `LLM_MODEL` |
   |---|---|---|
   | OpenAI | `https://api.openai.com/v1` | `gpt-4.1-mini` |
-  | Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+  | Groq | `https://api.groq.com/openai/v1` | `openai/gpt-oss-120b` |
   | Together | `https://api.together.xyz/v1` | `Qwen/Qwen2.5-72B-Instruct-Turbo` |
   | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
   | Ollama (offline) | `http://localhost:11434/v1` | `qwen2.5:14b-instruct` |
 
   Requirements: multi-call tool use and reliable JSON arguments. Keep `LLM_TEMPERATURE` low (0.2).
+
+  > **Groq model availability changes.** `llama-3.3-70b-versatile` is now an *Enterprise* model on
+  > GroqCloud — a developer key gets `404 The model ... does not exist or you do not have access to
+  > it`. On a standard key use `openai/gpt-oss-120b` (tool use, 131k context) or
+  > `openai/gpt-oss-20b` (cheaper, faster). List what your key can actually reach with:
+  >
+  > ```bash
+  > curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $LLM_API_KEY" \
+  >   | python3 -c "import json,sys; print([\"m['id']\" for m in json.load(sys.stdin)['data']])"
+  > ```
 
 * **Loop budgets** (defaults from `contracts/agent_tools.json` `limits`): `LLM_MAX_ITERATIONS=6`,
   `LLM_PER_CALL_TIMEOUT_MS=8000`, `LLM_TURN_TIMEOUT_MS=45000`, `LLM_MAX_RETRIES=1`. The loop is

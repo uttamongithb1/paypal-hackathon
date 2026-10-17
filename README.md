@@ -154,6 +154,19 @@ LLM_API_KEY=sk-...
 LLM_MODEL=gpt-4.1-mini
 ```
 
+Groq works the same way, and its free tier is enough for a demo:
+
+```bash
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_API_KEY=gsk_...
+LLM_MODEL=openai/gpt-oss-120b        # tool use + 131k context on a developer key
+```
+
+A turn reports which path served it in `message.end.usage`: `profile: "live"` with the model name
+when the model answered, or `profile: "deterministic-fallback"` with a `fallbackReason` /
+`fallbackDetail` when it degraded — so a misconfigured key is diagnosable from the response, not
+just from the server log.
+
 ---
 
 ## Deploy it (Render, free)
