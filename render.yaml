@@ -19,7 +19,9 @@ services:
     rootDir: app
     buildCommand: npm ci --omit=dev || npm install --omit=dev
     startCommand: npm start
-    healthCheckPath: /api/v1/readyz
+    # Liveness, not readiness: a PayPal sandbox blip must not take the storefront down with it.
+    # `/api/v1/readyz` is the deep check (503 when PayPal is unreachable) and is for humans.
+    healthCheckPath: /api/v1/healthz
     autoDeploy: true
     envVars:
       - key: NODE_ENV

@@ -223,13 +223,22 @@ function wire() {
       state.env = { ...version, currency: version.currency ?? 'USD' };
       const isSandbox = version.paypalMode === 'sandbox';
       const isLiveLlm = version.llm?.live === true;
+      const paypalDown = version.paypalHealth === 'down';
       // Quote the suite's real size — it comes from the server, which reads it from
       // test-count.json, so it can never drift from the number of tests that actually run.
       const tests = version.tests?.count ? `${version.tests.count} tests` : 'tested build';
-      $('#payments-pill').textContent = isSandbox ? (isLiveLlm ? 'sandbox · live AI' : 'sandbox · deterministic') : 'simulator';
-      $('#payments-pill').title = isSandbox
-        ? `PayPal Sandbox API active · Live LLM: ${version.llm?.model ?? 'active'} · ${tests}`
-        : 'Simulator: no external calls, the full PayPal outcome matrix is reproducible locally';
+      const pill = $('#payments-pill');
+      if (paypalDown) {
+        pill.textContent = 'payments degraded';
+        pill.title = 'PayPal is not answering right now — browsing and the agent still work, checkout is paused.';
+        pill.classList.add('pill--warning');
+      } else {
+        pill.textContent = isSandbox ? (isLiveLlm ? 'sandbox · live AI' : 'sandbox · deterministic') : 'simulator';
+        pill.title = isSandbox
+          ? `PayPal Sandbox API active · Live LLM: ${version.llm?.model ?? 'active'} · ${tests}`
+          : 'Simulator: no external calls, the full PayPal outcome matrix is reproducible locally';
+        pill.classList.remove('pill--warning');
+      }
       $('#build-info').textContent = `v${version.version} · node ${version.node} · PayPal ${version.paypalMode} · ${version.llm?.model ?? 'deterministic'} · ${tests}`;
     } catch {
       /* version is best-effort */

@@ -593,16 +593,29 @@ export function registerRoutes(app, c) {
   }
 
   // ── Health ───────────────────────────────────────────────────────────────
-  v1.get('/healthz', (_req, res) => res.json({ status: 'ok', uptimeSeconds: Math.round(process.uptime()) }));
+  /**
+   * Liveness. Always 200 while the process is serving.
+   *
+   * This is what the host health-checks, and it is deliberately NOT the same thing as
+   * readiness: a PayPal sandbox that is briefly unavailable must not take the storefront down
+   * with it. The demo degrades one feature and says so, rather than showing a judge a 503.
+   */
+  v1.get('/healthz', asyncHandler(async (_req, res) => {
+    const paypal = payment.gateway.mode === 'sandbox'
+      ? (await payment.gateway.healthy() ? 'ok' : 'down')
+      : 'simulator';
+    res.json({
+      status: 'ok',
+      uptimeSeconds: Math.round(process.uptime()),
+      paypal,
+      llm: !env.featureLiveLlm ? 'deterministic' : (env.llmApiKey ? 'live' : 'misconfigured-no-key')
+    });
+  }));
+  /** Readiness. 503 when a dependency the checkout needs is unavailable. */
   v1.get('/readyz', asyncHandler(async (_req, res) => {
     let paypal = 'simulator';
     if (payment.gateway.mode === 'sandbox') {
-      try {
-        await payment.gateway.accessToken();
-        paypal = 'ok';
-      } catch {
-        paypal = 'down';
-      }
+      paypal = (await payment.gateway.healthy()) ? 'ok' : 'down';
     }
     const ready = paypal !== 'down';
     res.status(ready ? 200 : 503).json({
@@ -615,13 +628,18 @@ export function registerRoutes(app, c) {
       flags: { checkout: true, analytics: env.featureAnalytics, guestOrders: env.featureGuestOrders }
     });
   }));
-  v1.get('/version', (_req, res) =>
+  v1.get('/version', asyncHandler(async (_req, res) =>
     res.json({
       version: '1.0.0',
       node: process.version,
       currency: 'USD',
       paypalEnv: env.paypalEnv,
       paypalMode: payment.gateway.mode,
+      // Whether PayPal is actually reachable right now, so the storefront can say "payments are
+      // degraded" instead of letting a shopper discover it at the checkout button.
+      paypalHealth: payment.gateway.mode === 'sandbox'
+        ? ((await payment.gateway.healthy()) ? 'ok' : 'down')
+        : 'simulator',
       // The client id is a public value (it ships in the browser SDK URL), so the storefront can
       // mount PayPal Buttons without a second round-trip. The secret never leaves the server.
       paypalClientId: payment.gateway.mode === 'sandbox' ? env.paypalClientId || null : null,
@@ -638,7 +656,7 @@ export function registerRoutes(app, c) {
       // The storefront quotes this instead of a number typed into a template.
       tests: env.testCount
     })
-  );
+  ));
 
   /**
    * Which models this deployment's key is actually allowed to call.

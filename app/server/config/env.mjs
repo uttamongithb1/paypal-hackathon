@@ -149,7 +149,17 @@ export const env = {
   }
 };
 
-export const paypalBaseUrl = env.paypalEnv === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+/**
+ * The PayPal Orders v2 base URL.
+ *
+ * `PAYPAL_API_BASE_URL` overrides it so the real gateway client can be pointed at a local fake —
+ * which is how the sandbox client's own behaviour (auth failure, retries, error mapping) is tested
+ * without calling PayPal on every CI run.
+ */
+export const paypalBaseUrl = str(
+  'PAYPAL_API_BASE_URL',
+  env.paypalEnv === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com'
+);
 
 /** Problems that must stop the process, with actionable messages. */
 export function validateEnv() {

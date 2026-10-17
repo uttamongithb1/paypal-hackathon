@@ -21,7 +21,9 @@ async function waitForReady(base, timeoutMs = 20_000) {
   const started = Date.now();
   for (;;) {
     try {
-      const res = await fetch(`${base}/api/v1/readyz`);
+      // Liveness, not readiness: a server that is up but degraded (PayPal unreachable) is still
+      // a running server, and a test may be about exactly that.
+      const res = await fetch(`${base}/api/v1/healthz`);
       if (res.ok) return;
     } catch {
       /* not up yet */

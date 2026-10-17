@@ -314,6 +314,16 @@ input:focus, select:focus, textarea:focus {
   content: ""; width: 6px; height: 6px; border-radius: 50%;
   background: var(--color-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 18%, transparent);
 }
+/* PayPal is unreachable: say so, in the storefront's own voice, instead of failing at checkout. */
+.pill--warning {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 32%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+.pill--warning::before {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning) 18%, transparent);
+}
 
 .badge {
   display: inline-flex; align-items: center; gap: 4px;

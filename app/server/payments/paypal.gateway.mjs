@@ -118,6 +118,11 @@ export class PaypalSimulator {
         : 'full';
   }
 
+  /** The simulator has no upstream to be unhealthy — it is always up. */
+  async healthy() {
+    return true;
+  }
+
   async createOrder({ order, requestId, returnUrl, cancelUrl, plan = null }) {
     const existing = [...this.orders.values()].find((o) => o.requestId === requestId);
     if (existing) return { id: existing.id, status: existing.status };
@@ -281,6 +286,25 @@ export class PaypalSandbox {
     this.token = data.access_token;
     this.tokenExpiresAt = Date.now() + Math.max(0, (data.expires_in - 60) * 1000);
     return this.token;
+  }
+
+  /**
+   * Cached liveness probe: are the credentials still authenticating?
+   *
+   * Cached for 30 seconds because a health endpoint must not spend a PayPal API call on every
+   * request, and because a sandbox that is briefly unavailable should not take the storefront
+   * down with it — the demo degrades one feature instead of dying.
+   */
+  async healthy() {
+    if (this.healthAt && Date.now() - this.healthAt < 30_000) return this.healthValue;
+    try {
+      await this.accessToken();
+      this.healthValue = true;
+    } catch {
+      this.healthValue = false;
+    }
+    this.healthAt = Date.now();
+    return this.healthValue;
   }
 
   async request(path, { method = 'GET', body, requestId, retries = 2 } = {}) {
