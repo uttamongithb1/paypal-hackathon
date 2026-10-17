@@ -610,9 +610,69 @@ export function registerRoutes(app, c) {
       // mount PayPal Buttons without a second round-trip. The secret never leaves the server.
       paypalClientId: payment.gateway.mode === 'sandbox' ? env.paypalClientId || null : null,
       paypalSdkReady: Boolean(env.paypalClientId) && payment.gateway.mode === 'sandbox',
+      // Which model the server will actually call. Without this, "is the AI on?" was answerable only
+      // by reading a log stream somewhere the operator may not have access to.
+      llm: {
+        live: env.featureLiveLlm && Boolean(env.llmApiKey),
+        provider: env.llmProvider ?? null,
+        model: env.featureLiveLlm ? env.llmModel : null
+      },
       features: { liveLlm: env.featureLiveLlm, analytics: env.featureAnalytics, guestOrders: env.featureGuestOrders }
     })
   );
+
+  /**
+   * Which models this deployment's key is actually allowed to call.
+   *
+   * A chat turn can only tell the shopper "the model failed"; it cannot tell the operator *why*.
+   * Groq (and OpenAI, and Together) all 404 with the same "does not exist or you do not have
+   * access" message for a model name that is real but gated behind a plan, and for a typo. Asking
+   * the provider for the model list settles it: if the configured model is absent from the list,
+   * the key is fine and the model is not available to it.
+   *
+   * Read-only, unauthenticated (it exposes only public model ids, never the key), cached for five
+   * minutes so it cannot be used to burn provider rate limit.
+   */
+  let modelListCache = { at: 0, value: null };
+  v1.get('/diagnostics/llm', asyncHandler(async (_req, res) => {
+    const configured = env.featureLiveLlm && Boolean(env.llmApiKey);
+    const base = { configured, provider: env.llmProvider ?? null, model: env.llmModel ?? null, baseUrl: env.llmBaseUrl ?? null };
+    if (!configured) {
+      return res.json({ ...base, ok: false, note: 'FEATURE_LIVE_LLM is off or LLM_API_KEY is empty — every turn runs on the deterministic planner.' });
+    }
+    const now = Date.now();
+    if (!modelListCache.value || now - modelListCache.at > 5 * 60_000) {
+      const endpoint = `${String(env.llmBaseUrl).replace(/\/+$/, '')}/models`;
+      try {
+        const response = await fetch(endpoint, {
+          headers: { authorization: `Bearer ${env.llmApiKey}` },
+          signal: AbortSignal.timeout(8000)
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          modelListCache = { at: now, value: { ok: false, status: response.status, error: text.slice(0, 300).replace(/gsk_[A-Za-z0-9_-]+/g, 'gsk_***') } };
+        } else {
+          const parsed = JSON.parse(text);
+          const ids = (parsed.data ?? []).map((m) => m.id).sort();
+          modelListCache = { at: now, value: { ok: true, models: ids } };
+        }
+      } catch (error) {
+        modelListCache = { at: now, value: { ok: false, error: error.message } };
+      }
+    }
+    const list = modelListCache.value;
+    if (!list.ok) return res.json({ ...base, reachable: true, ok: false, error: list.error, status: list.status ?? null });
+    return res.json({
+      ...base,
+      reachable: true,
+      ok: list.models.includes(env.llmModel),
+      modelAvailable: list.models.includes(env.llmModel),
+      availableModels: list.models,
+      note: list.models.includes(env.llmModel)
+        ? 'The configured model is available to this key.'
+        : `This key cannot call "${env.llmModel}". Pick one of availableModels and set LLM_MODEL.`
+    });
+  }));
 
   app.use('/api/v1', v1);
 
