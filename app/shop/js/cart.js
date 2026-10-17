@@ -98,7 +98,33 @@ export async function renderCart() {
       body.replaceChildren(
         h('div', { class: 'empty-state' }, [
           h('h3', { text: 'Your cart is empty' }),
-          h('p', { class: 'note', text: 'Ask the agent for options, or add something from the catalogue.' })
+          h('p', { class: 'note', text: 'Ask the agent in chat, or load our pre-configured demo basket.' }),
+          h('button', {
+            class: 'btn btn--secondary btn--sm',
+            type: 'button',
+            style: 'margin-top: 12px;',
+            text: '⚡ Load 2-Seller Demo Basket (Multi-Merchant Split)',
+            onclick: async (event) => {
+              const btn = event.currentTarget;
+              btn.disabled = true;
+              btn.textContent = 'Loading demo basket…';
+              try {
+                const { fetchProducts, addToCart } = await import('./api.js');
+                const prods = await fetchProducts({ limit: 15 });
+                const items = prods.items ?? [];
+                const m1 = items.find((p) => p.merchant?.name?.includes('Vertex') && p.available > 0);
+                const m2 = items.find((p) => !p.merchant?.name?.includes('Vertex') && p.available > 0);
+                if (m1) await addToCart(m1.id, 1);
+                if (m2) await addToCart(m2.id, 1);
+                toast('Loaded multi-merchant demo basket!', { tone: 'success' });
+                renderCart();
+              } catch (err) {
+                toast(err.message, { tone: 'danger' });
+                btn.disabled = false;
+                btn.textContent = '⚡ Load 2-Seller Demo Basket';
+              }
+            }
+          })
         ])
       );
       foot.replaceChildren();
