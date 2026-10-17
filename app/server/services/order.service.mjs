@@ -4,7 +4,7 @@
  * Docs: ../docs/data_model.md §2.10 + §3, ../docs/api_spec.md §5–6
  */
 import { ApiError } from '../lib/errors.mjs';
-import { CANCELLABLE_STATUSES, ORDER_STATUS, assertTransition, canTransition } from '../domain/orderState.mjs';
+import { CANCELLABLE_STATUSES, ORDER_STATUS, PAYMENT_STATUS, assertTransition, canTransition } from '../domain/orderState.mjs';
 import { formatMoney } from '../lib/money.mjs';
 import env from '../config/env.mjs';
 
@@ -196,18 +196,55 @@ export class OrderService {
     return updated;
   }
 
-  markRefunded(orderId, { merchantId, reason, refundId, actor = 'merchant' } = {}) {
+  /**
+   * Record refunds against an order.
+   *
+   * A multi-seller order holds one capture per seller, so a refund belongs to a capture. The order
+   * only becomes `refunded` when every capture has been refunded; until then it stays in flight
+   * with `payment.status = 'partially_refunded'`. A seller refunding their own share can no
+   * longer mark a co-seller's lines — or their revenue — as refunded.
+   */
+  recordRefunds(orderId, { refunds = [], reason, actor = 'merchant', totalCaptures } = {}) {
     const order = this.find({ orderId });
-    if (merchantId && !order.lines.some((l) => l.merchantId === merchantId)) {
-      throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
+    if (!refunds.length) throw new ApiError('INVALID_STATE', 'No refund was supplied for this order.');
+    const existing = order.payment?.refunds ?? [];
+    const all = [...existing, ...refunds.map((r) => ({ ...r, at: new Date().toISOString() }))];
+    const refundedCaptureIds = new Set(all.map((r) => r.captureId));
+    const captures = order.payment?.captures ?? [];
+    const scope = totalCaptures ?? captures.length;
+    const fullyRefunded = scope > 0 && refundedCaptureIds.size >= scope;
+
+    this.orders.updateOne(
+      { _id: orderId },
+      { 'payment.refunds': all, 'payment.refundId': all[all.length - 1].refundId }
+    );
+
+    let updated;
+    if (fullyRefunded) {
+      updated = this.transition(orderId, ORDER_STATUS.REFUNDED, { actor, meta: { reason } });
+      this.orders.updateOne({ _id: orderId }, { 'payment.status': PAYMENT_STATUS.REFUNDED });
+    } else {
+      this.orders.updateOne({ _id: orderId }, { 'payment.status': PAYMENT_STATUS.PARTIALLY_REFUNDED });
+      this.timeline(orderId, 'order_partially_refunded', actor, {
+        reason,
+        refundedCaptures: refunds.length,
+        totalCaptures: scope
+      });
+      updated = this.find({ orderId });
     }
-    const refundable = [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED];
-    if (!refundable.includes(order.status)) {
-      throw new ApiError('INVALID_STATE', `Cannot refund an order in status "${order.status}".`);
-    }
-    const updated = this.transition(orderId, ORDER_STATUS.REFUNDED, { actor, meta: { reason, refundId } });
-    this.orders.updateOne({ _id: orderId }, { 'payment.status': 'refunded', 'payment.refundId': refundId });
-    this.analytics.emit('order_refunded', { sessionId: order.sessionId, userId: order.userId, orderId, props: { orderId, reason, refundId } });
+
+    this.analytics.emit('order_refunded', {
+      sessionId: order.sessionId,
+      userId: order.userId,
+      orderId,
+      props: {
+        orderId,
+        reason,
+        refundId: all[all.length - 1].refundId,
+        amountMinor: refunds.reduce((sum, r) => sum + r.amountMinor, 0),
+        full: fullyRefunded
+      }
+    });
     return updated;
   }
 
@@ -258,14 +295,33 @@ export class OrderService {
     });
     const share = (order) => {
       const units = order.payment?.settlement?.units;
-      if (!merchantId || !Array.isArray(units) || units.length === 0) return order.amounts.totalMinor;
-      const own = units.filter((unit) => unit.merchantId === merchantId);
-      // An order that reached a terminal paid state without a unit for this merchant contributes
-      // nothing rather than the whole basket.
-      return own.reduce((sum, unit) => sum + unit.amountMinor, 0);
+      const captures = order.payment?.captures ?? [];
+      // Gross: what this seller's own share of the basket was. A seller who is not part of the
+      // order contributes nothing rather than the whole basket.
+      let gross;
+      if (merchantId && Array.isArray(units) && units.length) {
+        gross = units.filter((unit) => unit.merchantId === merchantId).reduce((sum, unit) => sum + unit.amountMinor, 0);
+      } else if (merchantId && captures.some((c) => c.merchantId)) {
+        gross = captures.filter((c) => c.merchantId === merchantId).reduce((sum, c) => sum + (c.amountMinor ?? 0), 0);
+      } else {
+        gross = order.amounts.totalMinor;
+      }
+      // Money already sent back to the shopper is not revenue.
+      const refunded = (order.payment?.refunds ?? [])
+        .filter((r) => !merchantId || r.merchantId === merchantId)
+        .reduce((sum, r) => sum + (r.amountMinor ?? 0), 0);
+      return Math.max(0, gross - refunded);
     };
     const revenueMinor = rows.reduce((sum, order) => sum + share(order), 0);
-    return { revenueMinor, paidOrders: rows.length, avgOrderValueMinor: rows.length ? Math.round(revenueMinor / rows.length) : 0 };
+    const refundedMinor = rows.reduce((sum, order) => sum + (order.payment?.refunds ?? [])
+      .filter((r) => !merchantId || r.merchantId === merchantId)
+      .reduce((s, r) => s + (r.amountMinor ?? 0), 0), 0);
+    return {
+      revenueMinor,
+      refundedMinor,
+      paidOrders: rows.length,
+      avgOrderValueMinor: rows.length ? Math.round(revenueMinor / rows.length) : 0
+    };
   }
 
   overview(merchantId) {

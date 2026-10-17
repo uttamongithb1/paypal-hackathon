@@ -246,16 +246,28 @@ export async function renderMerchant() {
                           }
                         })
                       : null,
-                    ['paid', 'processing', 'shipped'].includes(order.status)
+                    ['paid', 'processing', 'shipped', 'delivered'].includes(order.status)
                       ? h('button', {
                           class: 'btn btn--ghost btn--sm',
                           type: 'button',
                           text: 'Refund',
                           onclick: async () => {
-                            if (!confirm(`Issue full refund for ${order.orderNumber}? This will execute via PayPal.`)) return;
+                            // A seller refunds the capture that holds *their* money. On a split
+                            // order that is their own unit, not the whole basket — so say so
+                            // before the button spends real (sandbox) money.
+                            const unit = order.payment?.settlement?.units?.find((u) => u.merchantId === state.user?.merchantId);
+                            const isSplit = order.payment?.settlement?.mode === 'split' && Boolean(unit);
+                            const amount = isSplit ? money(unit.amountMinor) : (order.amounts?.display?.total ?? money(order.amounts?.totalMinor));
+                            const scope = isSplit
+                              ? `your share of ${amount} (the basket total is ${order.amounts?.display?.total}; the other seller's capture is untouched)`
+                              : `the full ${amount}`;
+                            if (!confirm(`Refund ${scope} on ${order.orderNumber}? This executes against PayPal.`)) return;
                             try {
-                              await merchantRefundOrder(order.id, { reason: 'Merchant return/cancellation' });
-                              toast(`${order.orderNumber} refunded`);
+                              const result = await merchantRefundOrder(order.id, { reason: 'Merchant return/cancellation' });
+                              const refunded = result?.refundedMinor != null ? money(result.refundedMinor) : amount;
+                              toast(result?.partial
+                                ? `${order.orderNumber}: ${refunded} refunded (partial — the other seller's capture is untouched)`
+                                : `${order.orderNumber}: ${refunded} refunded`);
                               renderMerchant();
                             } catch (e) {
                               toast(e.message || 'Refund failed', { tone: 'danger' });

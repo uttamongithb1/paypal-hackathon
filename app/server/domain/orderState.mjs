@@ -73,6 +73,9 @@ export const PAYMENT_STATUS = {
   CAPTURED: 'captured',
   FAILED: 'failed',
   CANCELLED: 'cancelled',
+  // A multi-seller order can be refunded seller by seller. Until every capture is refunded the
+  // order is still in flight — only then does it become REFUNDED.
+  PARTIALLY_REFUNDED: 'partially_refunded',
   REFUNDED: 'refunded'
 };
 

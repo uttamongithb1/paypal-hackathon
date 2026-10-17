@@ -633,7 +633,10 @@ export function registerRoutes(app, c) {
         provider: env.llmProvider ?? null,
         model: env.featureLiveLlm ? env.llmModel : null
       },
-      features: { liveLlm: env.featureLiveLlm, analytics: env.featureAnalytics, guestOrders: env.featureGuestOrders }
+      features: { liveLlm: env.featureLiveLlm, analytics: env.featureAnalytics, guestOrders: env.featureGuestOrders },
+      // The suite's own size, read from test-count.json (which `npm run verify` keeps honest).
+      // The storefront quotes this instead of a number typed into a template.
+      tests: env.testCount
     })
   );
 

@@ -30,6 +30,8 @@ services:
       # Ephemeral disk → seed the catalogue whenever the store is empty. Never overwrites data.
       - key: SEED_ON_BOOT
         value: "true"
+      - key: WEB_ORIGIN
+        value: https://paypal-hackathon.onrender.com
       - key: PAYPAL_MODE
         value: sandbox
       - key: PAYPAL_SETTLEMENT
@@ -48,10 +50,22 @@ services:
         sync: false
       - key: PAYPAL_CLIENT_SECRET
         sync: false
-      # Optional: a real model instead of the deterministic planner.
+      # The live demo runs a real model, and the blueprint must reproduce it exactly — a judge who
+      # deploys from this file must get the same agent, not the deterministic fallback planner.
+      # Provider: Groq. Model: openai/gpt-oss-120b (available on Groq's free tier).
       - key: FEATURE_LIVE_LLM
-        value: "false"
+        value: "true"
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
-        value: gpt-4.1-mini
+        value: openai/gpt-oss-120b
+      - key: LLM_TEMPERATURE
+        value: "0.2"
       - key: LLM_API_KEY
+        sync: false
+      # Optional: the webhook id from developer.paypal.com → Testing Tools → Webhooks. Without it
+      # the server refuses to trust inbound events, which is the safe default.
+      - key: PAYPAL_WEBHOOK_ID
         sync: false

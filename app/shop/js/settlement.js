@@ -124,30 +124,61 @@ export function settlementBadge(order) {
 }
 
 /**
- * Visual verification matrix showing the server-side V1-V7 financial assertions
- * that were verified before this order was marked paid (docs/payments_paypal.md §4).
+ * The verification matrix.
+ *
+ * Every row is rendered from `order.payment.verifyChecks` — the booleans the server actually
+ * evaluated in `verifyCapture()` before the order was allowed to become "paid" (V1–V8,
+ * docs/payments_paypal.md §4). Nothing here re-derives a result and nothing here asserts a pass:
+ * if the server did not record a check, the row says so instead of claiming success.
  */
+const VERIFICATION_ROWS = [
+  { code: 'V1', key: 'statusOk', label: 'PayPal Order Status', evidence: (o) => o.payment?.captureStatus ?? '—' },
+  { code: 'V2', key: 'orderRefOk', label: 'Order Reference Match', evidence: (o) => o.payment?.paypalOrderId ?? o.orderNumber ?? '—' },
+  { code: 'V3', key: 'captureExistsOk', label: 'Capture Object Present', evidence: (o) => o.payment?.paypalCaptureId ?? 'no capture id' },
+  { code: 'V4', key: 'amountOk', label: 'Amount Reconciled to Cent', evidence: (o) => o.amounts?.display?.total ?? money(o.amounts?.totalMinor) },
+  { code: 'V5', key: 'currencyOk', label: 'Currency Code Verified', evidence: (o) => o.amounts?.currency ?? '—' },
+  { code: 'V6', key: 'captureStatusOk', label: 'Capture Status', evidence: (o) => o.payment?.captureStatus ?? '—' },
+  { code: 'V7', key: 'uniqueOk', label: 'Idempotency & Anti-Replay', evidence: (o) => `attempt #${o.payment?.lastAttemptNo ?? 1} · ${o.payment?.captures?.length ?? 0} capture id(s)` },
+  {
+    code: 'V8',
+    key: 'settlementOk',
+    label: 'Multi-Seller Disbursement',
+    evidence: (o) => (o.payment?.settlement?.mode === 'split'
+      ? `split across ${o.payment.settlement.units?.length ?? 0} payees`
+      : 'single purchase unit')
+  }
+];
+
 export function verificationMatrix(order) {
-  if (!order || !order.payment || !['paid', 'processing', 'shipped', 'delivered'].includes(order.status)) {
+  if (!order || !order.payment || !['paid', 'processing', 'shipped', 'delivered', 'refunded'].includes(order.status)) {
     return null;
   }
-  const checks = [
-    { code: 'V1', label: 'PayPal Capture Status', result: order.payment.status === 'succeeded' || order.status === 'paid' ? 'COMPLETED' : 'PENDING' },
-    { code: 'V2', label: 'Order Reference Match', result: order.orderNumber ?? 'SP-ORDER' },
-    { code: 'V3', label: 'Capture Authenticated', result: order.payment.paypalCaptureId ?? 'verified' },
-    { code: 'V4', label: 'Amount Reconciled to Cent', result: order.amounts?.display?.total ?? money(order.amounts?.totalMinor) },
-    { code: 'V5', label: 'Currency Code Verified', result: order.amounts?.currency ?? 'USD' },
-    { code: 'V6', label: 'Idempotency & Anti-Replay', result: `attempt #${order.payment.lastAttemptNo ?? 1} locked` },
-    { code: 'V7', label: 'Multi-Seller Disbursement', result: order.payment.settlement?.mode === 'split' ? `Split across ${order.payment.settlement.units?.length} payees` : 'Single merchant unit verified' }
-  ];
+  const recorded = order.payment.verifyChecks;
+  const hasRecord = recorded && typeof recorded === 'object';
+
+  const rows = VERIFICATION_ROWS.map((row) => {
+    const value = hasRecord ? recorded[row.key] : undefined;
+    return { ...row, value, known: hasRecord && typeof value === 'boolean' };
+  });
+  const known = rows.filter((r) => r.known);
+  const passed = known.filter((r) => r.value === true).length;
+  const allPassed = known.length === rows.length && passed === known.length;
 
   return h('div', { class: 'card verification-matrix', style: { marginTop: '16px', padding: '16px' } }, [
     h('div', { class: 'row row--between', style: { marginBottom: '10px' } }, [
       h('div', {}, [
-        h('strong', { style: { fontSize: '14px', display: 'block' }, text: 'PayPal Capture Verification (V1–V7)' }),
-        h('span', { class: 'note', text: 'Server-side assertions passed before status marked paid (docs/payments_paypal.md §4)' })
+        h('strong', { style: { fontSize: '14px', display: 'block' }, text: 'PayPal Capture Verification (V1–V8)' }),
+        h('span', {
+          class: 'note',
+          text: hasRecord
+            ? 'Recorded by the server before this order was marked paid (docs/payments_paypal.md §4)'
+            : 'No verification record was stored for this order'
+        })
       ]),
-      h('span', { class: 'badge badge--success', text: '7 / 7 VERIFIED' })
+      h('span', {
+        class: `badge ${allPassed ? 'badge--success' : 'badge--danger'}`,
+        text: hasRecord ? `${passed} / ${rows.length} VERIFIED` : 'NOT RECORDED'
+      })
     ]),
     h('div', { class: 'table-wrap' }, [
       h('table', { class: 'verification-table', style: { width: '100%', fontSize: '13px' } }, [
@@ -156,23 +187,26 @@ export function verificationMatrix(order) {
             h('th', { style: { width: '45px' }, text: 'Rule' }),
             h('th', { text: 'Security Check' }),
             h('th', { text: 'Value / Proof' }),
-            h('th', { style: { width: '75px', textAlign: 'right' }, text: 'Status' })
+            h('th', { style: { width: '85px', textAlign: 'right' }, text: 'Status' })
           ])
         ]),
-        h('tbody', {}, checks.map(c =>
+        h('tbody', {}, rows.map((r) =>
           h('tr', {}, [
-            h('td', { class: 'mono', style: { fontWeight: '600', color: 'var(--color-accent)' }, text: c.code }),
-            h('td', { text: c.label }),
-            h('td', { class: 'mono note', text: c.result }),
+            h('td', { class: 'mono', style: { fontWeight: '600', color: 'var(--color-accent)' }, text: r.code }),
+            h('td', { text: r.label }),
+            h('td', { class: 'mono note', text: r.evidence(order) }),
             h('td', { style: { textAlign: 'right' } }, [
-              h('span', { class: 'badge badge--success', text: 'PASS ✓' })
+              h('span', {
+                class: `badge ${r.known ? (r.value ? 'badge--success' : 'badge--danger') : ''}`,
+                text: r.known ? (r.value ? 'PASS ✓' : 'FAIL ✗') : 'n/a'
+              })
             ])
           ])
         ))
       ])
     ]),
     h('div', { class: 'row row--between', style: { marginTop: '12px', alignItems: 'center' } }, [
-      h('span', { class: 'note', text: `PayPal Capture: ${order.payment.paypalCaptureId ?? 'Verified'}` }),
+      h('span', { class: 'note', text: `PayPal Capture: ${order.payment.paypalCaptureId ?? 'none recorded'}` }),
       h('button', {
         class: 'btn btn--secondary btn--sm',
         type: 'button',

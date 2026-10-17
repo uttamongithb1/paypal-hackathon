@@ -36,6 +36,40 @@ test.after(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('a split order has one capture per seller, and each capture holds that seller’s share', () => {
+  const paid = store.collection('orders').find({ status: 'paid' });
+  const split = paid.filter((o) => o.payment?.settlement?.mode === 'split');
+  assert.ok(split.length > 0, 'the fixture must contain split orders');
+  for (const order of split) {
+    const units = order.payment.settlement.units;
+    assert.equal(
+      order.payment.captures.length,
+      units.length,
+      `${order.orderNumber}: PayPal captures once per purchase unit — a split order must not have one capture for the basket`
+    );
+    for (const capture of order.payment.captures) {
+      assert.ok(capture.merchantId, `${order.orderNumber}: a capture must name the seller it belongs to`);
+      const unit = units.find((u) => u.merchantId === capture.merchantId);
+      assert.ok(unit, `${order.orderNumber}: the capture must match a settlement unit`);
+      assert.equal(capture.amountMinor, unit.amountMinor, `${order.orderNumber}: a capture holds exactly its seller’s share`);
+    }
+    const total = order.payment.captures.reduce((sum, c) => sum + c.amountMinor, 0);
+    assert.equal(total, order.amounts.totalMinor, `${order.orderNumber}: captures must sum to the order total`);
+  }
+});
+
+test('a paid order records the verification checks the storefront renders', () => {
+  const paid = store.collection('orders').find({ status: 'paid' });
+  for (const order of paid) {
+    const checks = order.payment?.verifyChecks;
+    assert.ok(checks, `${order.orderNumber}: the V1–V8 record must exist, or the matrix would be asserting something nobody checked`);
+    for (const key of ['statusOk', 'orderRefOk', 'captureExistsOk', 'amountOk', 'currencyOk', 'captureStatusOk', 'uniqueOk', 'settlementOk']) {
+      assert.equal(typeof checks[key], 'boolean', `${order.orderNumber}: ${key} must be a boolean`);
+      assert.equal(checks[key], true, `${order.orderNumber}: ${key} must hold for a correctly captured order`);
+    }
+  }
+});
+
 test('the store gets a history, not an empty order book', () => {
   const orders = store.collection('orders').find({});
   assert.equal(orders.length, 44, '41 paid + 2 awaiting payment + 1 expired');

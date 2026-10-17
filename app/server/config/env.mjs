@@ -49,6 +49,17 @@ export function parseRate(spec) {
   return { limit: Number(m[1]), windowMs: Number(m[2]) * mult };
 }
 
+/** Read the recorded test totals so the storefront never quotes a number by hand. */
+const readTestCount = () => {
+  try {
+    const raw = fs.readFileSync(path.join(appRoot, 'test-count.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    return { count: Number(parsed.count) || null, suites: Number(parsed.suites) || null };
+  } catch {
+    return { count: null, suites: null };
+  }
+};
+
 export const env = {
   nodeEnv: str('NODE_ENV', 'development'),
   isProd: str('NODE_ENV', 'development') === 'production',
@@ -57,6 +68,7 @@ export const env = {
   webOrigin: str('WEB_ORIGIN', 'http://localhost:4000'),
   logLevel: str('LOG_LEVEL', 'info'),
   appRoot,
+  testCount: readTestCount(),
 
   dataDir: path.resolve(appRoot, str('DATA_DIR', '.data')),
   mongoUri: str('MONGO_URI'),

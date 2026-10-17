@@ -58,6 +58,17 @@ export function createApp(container) {
   // Static shop (single-page app). Deep links fall back to index.html.
   const shopDir = path.join(env.appRoot, 'shop');
   if (fs.existsSync(shopDir)) {
+    // /how-it-works quotes the size of the test suite, so the number is injected from the
+    // server's recorded count (test-count.json) instead of being typed into the markup.
+    app.get('/how-it-works', (_req, res, next) => {
+      const file = path.join(shopDir, 'how-it-works.html');
+      if (!fs.existsSync(file)) return next();
+      const html = fs.readFileSync(file, 'utf8')
+        .replace(/\{\{TEST_COUNT\}\}/g, String(env.testCount.count ?? '—'))
+        .replace(/\{\{TEST_SUITES\}\}/g, String(env.testCount.suites ?? '—'));
+      res.set('Cache-Control', env.isProd ? 'public, max-age=3600' : 'no-store');
+      res.type('html').send(html);
+    });
     app.use(express.static(shopDir, { extensions: ['html'], maxAge: env.isProd ? '1h' : 0 }));
     app.get(/^\/(?!api\/).*/, (req, res, next) => {
       if (req.method !== 'GET') return next();

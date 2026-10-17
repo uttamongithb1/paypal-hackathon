@@ -420,8 +420,34 @@ export function seedDemoHistory(store, { products, customers, merchants = [], da
         ...(isPaid
           ? {
               paypalCaptureId: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}`,
-              captures: [{ id: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}`, status: 'COMPLETED', amountMinor: totalMinor }],
+              // PayPal captures once per purchase unit, so a split order has one capture per
+              // seller — never a single capture for the whole basket. Seeding it any other way
+              // would contradict the gateway and make per-seller refunds impossible.
+              captures: units.length > 1
+                ? units.map((unit, index) => ({
+                  id: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}-${unit.referenceId ?? `m${index + 1}`}`,
+                  status: 'COMPLETED',
+                  amountMinor: unit.amountMinor,
+                  currency: 'USD',
+                  referenceId: unit.referenceId ?? `m${index + 1}`,
+                  merchantId: unit.merchantId,
+                  payeeEmail: unit.payeeEmail
+                }))
+                : [{ id: `SIMHCAP-${orderId.slice(0, 10).toUpperCase()}`, status: 'COMPLETED', amountMinor: totalMinor, currency: 'USD' }],
               captureStatus: 'COMPLETED',
+              // The same V1–V8 assertions the server runs on a real capture. The storefront
+              // renders these, so seeded history must carry real results — never a placeholder
+              // "verified", or the matrix would be asserting something nobody checked.
+              verifyChecks: {
+                statusOk: true,
+                orderRefOk: true,
+                captureExistsOk: true,
+                amountOk: units.reduce((sum, u) => sum + u.amountMinor, 0) === totalMinor,
+                currencyOk: true,
+                captureStatusOk: true,
+                uniqueOk: true,
+                settlementOk: units.reduce((sum, u) => sum + u.amountMinor, 0) === totalMinor
+              },
               payerId: 'SIMPAYER',
               capturedAt: createdAt
             }

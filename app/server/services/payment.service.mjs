@@ -387,7 +387,12 @@ export class PaymentService {
 
   /** Transactional apply. Stock commit failure never leaves the order paid with no goods. */
   async applyCapture({ orderId, attempt, response, verification, auth }) {
-    const captures = (response.purchase_units ?? []).flatMap((u) => u.payments?.captures ?? []);
+    // Keep each capture paired with the purchase unit that produced it. A split order captures
+    // once per seller, so the unit is the only thing that says *whose money* a capture holds —
+    // without it a refund cannot be aimed at the right seller.
+    const capturedUnits = (response.purchase_units ?? []).flatMap((u) =>
+      (u.payments?.captures ?? []).map((c) => ({ unit: u, capture: c })));
+    const captures = capturedUnits.map(({ capture }) => capture);
     const capture = captures[0];
     const payerEmail = response.payer?.email_address;
     try {
@@ -411,9 +416,30 @@ export class PaymentService {
               status: PAYMENT_STATUS.CAPTURED,
               paypalCaptureId: capture.id,
               // Every seller's capture, so per-merchant reconciliation and refunds stay possible.
-              captures: captures.map((c) => ({ id: c.id, amountMinor: Math.round(Number(c.amount.value) * 100), status: c.status })),
+              captures: capturedUnits.map(({ unit, capture: c }) => {
+                // Split orders carry `${orderNumber}:${referenceId}` in custom_id, which names the
+                // seller unambiguously. Single-unit orders have no such suffix.
+                const customId = String(unit.custom_id ?? '');
+                const referenceId = customId.includes(':') ? customId.split(':').pop() : null;
+                const settlementUnit = (order.payment?.settlement?.units ?? [])
+                  .find((u) => (referenceId && u.referenceId === referenceId)
+                    || (!referenceId && u.merchantId && order.lines.every((l) => l.merchantId === u.merchantId)));
+                return {
+                  id: c.id,
+                  amountMinor: Math.round(Number(c.amount.value) * 100),
+                  status: c.status,
+                  currency: c.amount?.currency_code ?? order.amounts.currency,
+                  referenceId: referenceId ?? settlementUnit?.referenceId ?? null,
+                  merchantId: settlementUnit?.merchantId ?? null,
+                  payeeEmail: unit.payee?.email_address ?? settlementUnit?.payee?.emailAddress ?? null
+                };
+              }),
               captureStatus: capture.status,
               amountVerified: true,
+              // The V1–V8 assertions the server actually ran before the order was allowed to
+              // become "paid". Persisted so the storefront can show the real result instead of
+              // re-deriving (or asserting) one — a check that is not recorded cannot be shown.
+              verifyChecks: { ...verification.checks },
               payerId: response.payer?.payer_id,
               payerEmailHash: payerEmail ? hashPii(payerEmail) : undefined,
               capturedAt: new Date().toISOString(),
@@ -705,13 +731,27 @@ export class PaymentService {
     return stale.length;
   }
 
+  /**
+   * Refund a captured order.
+   *
+   * Money is captured per seller: a multi-merchant order has one PayPal capture per purchase
+   * unit, and each unit holds only that seller's share. A refund must therefore be scoped to
+   * captures, not to the order:
+   *   - a merchant refunds the captures that belong to their own seller, for their own amount;
+   *   - an admin may refund any or all of them.
+   * Refunding the order total against a single capture (the old behaviour) is rejected by PayPal
+   * on a split order, and flipping the whole order to "refunded" let one seller erase a co-seller's
+   * revenue. Both are fixed here.
+   */
   async refundOrder({ orderId, reason = 'Customer return', auth } = {}) {
     const user = auth?.user;
     if (!user || (user.role !== 'merchant' && user.role !== 'admin')) {
       throw new ApiError('FORBIDDEN', 'Only merchants or admins can refund orders.');
     }
     const order = this.order.find({ orderId });
-    if (user.role === 'merchant' && !order.lines.some((l) => l.merchantId === user.merchantId)) {
+    const isAdmin = user.role === 'admin';
+    const merchantId = isAdmin ? null : user.merchantId;
+    if (!isAdmin && !order.lines.some((l) => l.merchantId === merchantId)) {
       throw new ApiError('ORDER_NOT_FOUND', "We couldn't find that order.");
     }
     const refundable = [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED];
@@ -719,29 +759,74 @@ export class PaymentService {
       throw new ApiError('INVALID_STATE', `Cannot refund an order in status "${order.status}".`);
     }
 
-    const captureId = order.payment?.paypalCaptureId;
-    let refundResult = null;
-    if (captureId && this.gateway?.refundCapture) {
-      try {
-        refundResult = await this.gateway.refundCapture(captureId, {
-          amountMinor: order.amounts.totalMinor,
-          currency: order.amounts.currency,
-          note: reason
-        });
-      } catch (err) {
-        logger.error('payment.refund.failed', { orderId, captureId, error: err.message });
-        throw new ApiError('PAYMENT_PROVIDER_ERROR', `PayPal refund failed: ${err.message}`);
-      }
+    // One capture per seller. Older orders predate per-unit captures, so fall back to the single
+    // capture and attribute it to the only seller in the order.
+    const orderMerchantIds = [...new Set(order.lines.map((l) => l.merchantId))];
+    const stored = order.payment?.captures ?? [];
+    const captures = (stored.length ? stored : (order.payment?.paypalCaptureId
+      ? [{ id: order.payment.paypalCaptureId, amountMinor: order.amounts.totalMinor, status: 'COMPLETED' }]
+      : [])).map((c, index) => ({
+      ...c,
+      amountMinor: c.amountMinor ?? order.amounts.totalMinor,
+      merchantId: c.merchantId ?? (orderMerchantIds.length === 1 ? orderMerchantIds[0] : null),
+      referenceId: c.referenceId ?? null
+    }));
+    if (!captures.length) {
+      throw new ApiError('INVALID_STATE', 'This order has no captured payment to refund.');
     }
 
-    const refundId = refundResult?.id ?? `REF-${objectId().slice(0, 8)}`;
-    const updated = this.order.markRefunded(orderId, {
-      merchantId: user.role === 'merchant' ? user.merchantId : undefined,
+    const alreadyRefunded = new Set((order.payment?.refunds ?? []).map((r) => r.captureId));
+    const targets = captures.filter((c) => !alreadyRefunded.has(c.id) && (isAdmin || c.merchantId === merchantId));
+    if (!targets.length) {
+      throw new ApiError('INVALID_STATE', 'Every refundable capture on this order has already been refunded.');
+    }
+
+    // Refund each capture for exactly the amount that capture holds.
+    const refunds = [];
+    for (const target of targets) {
+      let refundResult = null;
+      if (this.gateway?.refundCapture) {
+        try {
+          refundResult = await this.gateway.refundCapture(target.id, {
+            amountMinor: target.amountMinor,
+            currency: target.currency ?? order.amounts.currency,
+            note: reason
+          });
+        } catch (err) {
+          logger.error('payment.refund.failed', { orderId, captureId: target.id, error: err.message });
+          throw new ApiError('PAYMENT_PROVIDER_ERROR', `PayPal refund failed: ${err.message}`);
+        }
+      }
+      refunds.push({
+        captureId: target.id,
+        merchantId: target.merchantId,
+        referenceId: target.referenceId,
+        amountMinor: target.amountMinor,
+        currency: target.currency ?? order.amounts.currency,
+        refundId: refundResult?.id ?? `REF-${objectId().slice(0, 8)}`,
+        providerStatus: refundResult?.status ?? 'COMPLETED',
+        reason
+      });
+    }
+
+    const updated = this.order.recordRefunds(orderId, {
+      refunds,
       reason,
-      refundId,
-      actor: user.role
+      actor: user.role,
+      totalCaptures: captures.length
     });
-    return { order: this.order.toDto(updated), refundId };
+    const refundIds = refunds.map((r) => r.refundId);
+    // "Partial" means money is still outstanding to a seller after this refund — not "this call
+    // touched fewer captures than the order has".
+    const settled = new Set([...alreadyRefunded, ...refunds.map((r) => r.captureId)]);
+    const stillUnrefunded = captures.filter((c) => !settled.has(c.id)).length;
+    return {
+      order: this.order.toDto(updated),
+      refundId: refundIds.length === 1 ? refundIds[0] : refundIds,
+      refunds,
+      refundedMinor: refunds.reduce((sum, r) => sum + r.amountMinor, 0),
+      partial: stillUnrefunded > 0
+    };
   }
 
   /** Strip tokens/PII from a PayPal response before storing it (security_privacy.md §6). */
