@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How ShopPilot AI works — the agent loop, the money path, the rails</title>
+<meta name="description" content="How ShopPilot AI turns a sentence into a multi-merchant order the shopper approves: 14 tools, a settlement ladder, and a guardrail that refuses to state a price no tool returned.">
+<link rel="icon" href="/favicon.svg">
+<style>
+  /* Self-contained on purpose: this page is read by judges, and it should survive being saved,
+     printed or archived without the rest of the app. Same Ledger tokens as the shop. */
+  :root {
+    --canvas: #faf9f7; --surface: #ffffff; --surface-2: #f4f2ee;
+    --border: #e7e2db; --border-strong: #d8d2c8;
+    --text: #14120f; --muted: #7a746c; --subtle: #5c564e;
+    --accent: #17458f; --accent-soft: #e8eefb;
+    --ink: #14120f; --success: #157347; --warn: #a15c07;
+    --radius: 12px; --radius-sm: 8px;
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #121110; --surface: #1a1917; --surface-2: #211f1d;
+      --border: #2f2c28; --border-strong: #3d3934;
+      --text: #f5f2ed; --muted: #a39c92; --subtle: #c2bbb0;
+      --accent: #7ba3ea; --accent-soft: #17233c;
+      --ink: #f5f2ed; --success: #4cc38a; --warn: #d99a3f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--canvas); color: var(--text);
+    font-family: var(--sans); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 96px; }
+
+  header.bar {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px;
+    height: 60px; padding: 0 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+  .brand__mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--ink); color: var(--canvas); font-size: 13px; }
+  .brand__ai { font-style: normal; margin-left: 3px; padding: 1px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; vertical-align: 2px; }
+  .bar nav { display: flex; gap: 18px; margin-left: auto; font-size: 14px; }
+  .bar nav a { color: var(--muted); font-weight: 550; }
+  .bar nav a:hover { color: var(--text); text-decoration: none; }
+
+  .lede { padding: 56px 0 8px; }
+  .eyebrow { display: inline-block; font-size: 11px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 5px 10px; }
+  h1 { font-family: var(--serif); font-size: clamp(32px, 5vw, 50px); line-height: 1.1; letter-spacing: -0.02em; margin: 18px 0 14px; font-weight: 600; }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lede p { font-size: 18px; color: var(--subtle); max-width: 62ch; margin: 0; }
+
+  .claim { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 34px 0 8px; }
+  .claim div { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .claim strong { display: block; font-size: 26px; font-family: var(--serif); letter-spacing: -0.01em; }
+  .claim span { color: var(--muted); font-size: 13px; }
+
+  h2 { font-family: var(--serif); font-size: 27px; letter-spacing: -0.015em; margin: 56px 0 6px; font-weight: 600; }
+  h2 .num { font-family: var(--mono); font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; letter-spacing: .06em; }
+  .sub { color: var(--muted); margin: 0 0 22px; max-width: 68ch; }
+  h3 { font-size: 15px; margin: 0 0 4px; letter-spacing: -0.005em; }
+  p { margin: 0 0 14px; }
+  .muted { color: var(--muted); }
+
+  /* The loop */
+  .loop { display: grid; gap: 10px; counter-reset: step; }
+  .step {
+    display: grid; grid-template-columns: 40px 1fr; gap: 16px; align-items: start;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px;
+  }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 13px; font-weight: 600;
+  }
+  .step p { margin: 4px 0 0; color: var(--subtle); font-size: 14px; }
+  .step code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+
+  /* Tool table */
+  .tools { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .tools th { text-align: left; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 650; }
+  .tools td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .tools tr:last-child td { border-bottom: 0; }
+  .tools code { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+  .tools td:last-child { color: var(--subtle); }
+
+  /* Money path */
+  .ladder { display: grid; gap: 8px; margin: 6px 0 18px; }
+  .rung { display: grid; grid-template-columns: 26px 1fr; gap: 12px; align-items: start; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: var(--radius-sm); }
+  .rung--ok { border-left-color: var(--success); }
+  .rung--warn { border-left-color: var(--warn); }
+  .rung b { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .rung p { margin: 2px 0 0; font-size: 13.5px; color: var(--subtle); }
+
+  .callout { background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius-sm); padding: 16px 18px; margin: 18px 0; }
+  .callout p:last-child { margin: 0; }
+
+  ul.rails { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  ul.rails li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
+  ul.rails b { display: block; margin-bottom: 2px; }
+  ul.rails span { color: var(--subtle); font-size: 14px; }
+
+  .foot { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 14px; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  .foot a { color: var(--subtle); }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px 64px; }
+    header.bar { padding: 0 12px; gap: 8px; height: auto; min-height: 56px; flex-wrap: wrap; }
+    /* Four nav links plus the wordmark do not fit a 390px row; drop the ones the shop header
+       already offers on every page and keep the two that matter here. */
+    .bar nav { font-size: 13px; gap: 12px; margin-left: 0; flex: 1 1 100%; height: 38px; align-items: center; border-top: 1px solid var(--border); }
+    .bar nav a[href="/orders"], .bar nav a[href="/merchant"] { display: none; }
+    /* The tool table is wider than a phone. Let it scroll inside its own box rather than
+       stretching the document to 452px. */
+    .tools { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tools thead, .tools tbody { display: table; width: 100%; min-width: 460px; }
+    .lede { padding-top: 36px; }
+    .step { grid-template-columns: 30px 1fr; gap: 12px; padding: 14px; }
+    .tools { display: block; overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/"><span class="brand__mark">SP</span> ShopPilot <em class="brand__ai">AI</em></a>
+  <nav>
+    <a href="/">Shop</a>
+    <a href="/catalogue">Catalogue</a>
+    <a href="/orders">Orders</a>
+    <a href="/merchant">Merchant</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <section class="lede">
+    <span class="eyebrow">Reference implementation · PayPal sandbox</span>
+    <h1>An agent that shops.<br><em>A human who pays.</em></h1>
+    <p>
+      ShopPilot turns a sentence — <em>“noise-cancelling headphones for flights under $350”</em> —
+      into a priced, stock-checked order that may span several merchants, and stops there. The
+      shopper approves. The agent has no payment tool, so it cannot spend even if it wanted to.
+    </p>
+    <div class="claim">
+      <div><strong>14</strong><span>Agent tools, and none of them move money</span></div>
+      <div><strong>2</strong><span>Merchants settled from one cart</span></div>
+      <div><strong>0</strong><span>Prices stated that no tool returned</span></div>
+    </div>
+  </section>
+
+  <h2><span class="num">01</span>A turn, end to end</h2>
+  <p class="sub">
+    Every turn is a bounded loop. The model chooses tools; the server executes them; the answer is
+    checked before the shopper ever sees it.
+  </p>
+  <div class="loop">
+    <div class="step">
+      <div>
+        <h3>The shopper says something in plain language</h3>
+        <p>The message is parsed for category, budget and constraints, then added to a requirement
+        the session carries forward — so “actually, cheaper” still knows the category.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>The model is asked to use the catalogue, not its memory</h3>
+        <p>A product request forces one <code>search_products</code> call before any answer
+        (<code>tool_choice: "required"</code>, reverted to <code>auto</code> immediately after, so it
+        cannot loop). Everything it says about a product comes from a tool result.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>Tool results are compacted before they reach the model</h3>
+        <p>A five-product search returns 76% fewer tokens than the raw record — id, price, stock,
+        rating and the six attributes that matter. The free Groq tier allows 8,000 tokens/minute,
+        and a turn now costs about 2,600 instead of 10,000.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>The answer is checked against what the tools actually returned</h3>
+        <p>Every price in the draft is matched against this turn's tool payloads in both display and
+        minor-unit form. A number that no tool produced is not shown — the answer is replaced with
+        one built from the tool results. Amounts the shopper typed themselves are allowed through.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div>
+        <h3>If the model is unavailable, the shop still works</h3>
+        <p>A deterministic planner answers from the same catalogue and the same tools. The turn is
+        labelled <code>deterministic</code>, never <code>live</code> — the UI says which path ran, and
+        <code>/api/v1/version</code> reports it too.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2><span class="num">02</span>The tools</h2>
+  <p class="sub">
+    Fourteen, registered in one place and exercised by the test suite. Read the list for what is
+    <em>absent</em>: there is no tool that can pay, capture, or move money.
+  </p>
+  <table class="tools">
+    <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_products</code></td><td>Free-text plus typed filters (budget, attributes) against the real catalogue. Returns at most five, compacted.</td></tr>
+      <tr><td><code>get_product</code></td><td>One product in full — specs, pros and cons, stock, price history.</td></tr>
+      <tr><td><code>compare_products</code></td><td>Two to four products side by side on the attributes that differ.</td></tr>
+      <tr><td><code>check_availability</code></td><td>Live stock, including holds other shoppers are sitting on.</td></tr>
+      <tr><td><code>view_cart</code></td><td>Current basket with server prices, never cached ones.</td></tr>
+      <tr><td><code>add_to_cart</code></td><td>Adds a line, enforcing stock and a ten-per-line cap.</td></tr>
+      <tr><td><code>update_cart_item</code></td><td>Changes quantity, re-checking availability.</td></tr>
+      <tr><td><code>remove_cart_item</code></td><td>Removes a line.</td></tr>
+      <tr><td><code>clear_cart</code></td><td>Empties the basket on request.</td></tr>
+      <tr><td><code>get_quote_estimate</code></td><td>Prices the basket server-side: subtotal, tax, shipping, total, stock holds.</td></tr>
+      <tr><td><code>prepare_checkout</code></td><td>Creates the quote and hands control back. It does not pay.</td></tr>
+      <tr><td><code>answer_policy</code></td><td>Answerable from the policy document — returns, warranty, shipping, privacy.</td></tr>
+      <tr><td><code>remember_preference</code></td><td>Remembers a durable constraint (brand, size, must-have).</td></tr>
+      <tr><td><code>set_requirement</code></td><td>Internal: updates the session requirement as the shopper refines it.</td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">03</span>The money path</h2>
+  <p class="sub">
+    One cart can hold products from several merchants. PayPal pays a merchant, not a platform, so a
+    multi-merchant basket has to be settled deliberately — and has to keep working when the account
+    is not enabled for it.
+  </p>
+  <div class="ladder">
+    <div class="rung rung--ok"><b>01</b><div><h3>Split settlement</h3><p>One PayPal order, one purchase unit per merchant, each with its own payee. The commission is attached as a <code>platform_fee</code>.</p></div></div>
+    <div class="rung rung--warn"><b>02</b><div><h3>Fees refused</h3><p>If PayPal answers <code>PLATFORM_FEES_NOT_SUPPORTED</code>, the same order is rebuilt with payees and no fee. The shopper pays the same total; the platform earns nothing rather than failing the sale.</p></div></div>
+    <div class="rung rung--warn"><b>03</b><div><h3>Split refused</h3><p>If multi-seller payment is unavailable at all, the basket settles as a single payee. Every fallback is recorded on the order so the ledger shows which rung was used.</p></div></div>
+  </div>
+  <div class="callout">
+    <p><b>Nothing is trusted from the browser.</b> The amount captured is checked server-side against
+    the order that was stored before the redirect. A capture whose amount or currency disagrees with
+    the order is rejected, not reconciled after the fact.</p>
+  </div>
+
+  <h2><span class="num">04</span>The rails</h2>
+  <p class="sub">The interesting part of an agent that spends money is everything it is not allowed to do.</p>
+  <ul class="rails">
+    <li><b>No payment tool</b><span>The agent can price a basket and prepare a checkout. Only a human click on the checkout page starts a PayPal payment.</span></li>
+    <li><b>No ungrounded prices</b><span>Every figure in an answer is matched against the tool results for that turn. Failing means the text is replaced, not patched.</span></li>
+    <li><b>No stale prices</b><span>Quotes carry a hash of the priced basket. If a price or stock level changes between quote and order, the order is refused and the shopper re-reviews.</span></li>
+    <li><b>No double charging</b><span>Order creation is idempotent on a client key; a replayed request returns the original order instead of creating a second one.</span></li>
+    <li><b>No silent failures</b><span>Every turn reports which path produced it — live model, degraded, or deterministic — and <code>/api/v1/version</code> exposes the same fact.</span></li>
+  </ul>
+
+  <h2><span class="num">05</span>What is checked</h2>
+  <p class="sub">
+    78 tests across unit, integration and end-to-end, plus ten invariants the suite refuses to break:
+    money conserves, stock never goes negative, settlement units always sum to the order total, and the
+    event log matches the orders it describes.
+  </p>
+  <p class="muted">
+    Source, tests and run instructions: <a href="https://github.com/uttamongithb1/paypal-hackathon">github.com/uttamongithb1/paypal-hackathon</a>
+    · MIT licensed · Deployed on Render, built with PayPal's sandbox APIs and a live language model.
+  </p>
+
+  <div class="foot">
+    <span>ShopPilot AI — reference implementation. <b>The agent never pays.</b></span>
+    <span><a href="/">Back to the shop</a></span>
+  </div>
+</div>
+</body>
+</html>
