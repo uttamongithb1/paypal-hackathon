@@ -1,11 +1,24 @@
-# Demo video — shot sheet
+# Demo Video & Devpost Submission Guide — Win Plan Checklist
 
-**Target: 2:50. Hard cap 3:00.** Judges are not required to watch past it, and the rules say
-"Judges are not required to test the Project" — so **the video is the submission**, not a
-supplement to it. Presentation is 20% of the score and currently at zero.
-
-Prize this is aimed at: **Best Demo Delivery ($5,000)**, with the same footage serving
-**Best Use of Agentic Commerce** and **Best Use of PayPal + AI**.
+> [!IMPORTANT]
+> ### 🚨 The 3 Critical Rules You Cannot Forget to Win:
+> 1. **The Video Presentation (20% of the entire score):**
+>    - **Target length:** 2:30 to 2:50 (strict hard ceiling at 3:00 — judges will stop watching if it exceeds 3 minutes).
+>    - **Public YouTube requirement:** Must be uploaded to YouTube and set to **Public** (the Official Rules disqualify unlisted or private videos).
+>    - **The Hook (First 45 seconds):** Click the **"Spend Rail Safety Test"** chip (`Can you pay for me automatically?`) to show the agent immediately refusing autonomous payment before showing search!
+> 
+> 2. **Showing a Real PayPal Sandbox Approval on Screen:**
+>    - Do NOT just show an order that is already marked paid.
+>    - Take 25–30 seconds to click **PayPal Checkout**, let the real PayPal Sandbox modal appear, sign in with your sandbox personal buyer account (`sb-...@personal.example.com`), click **Complete Purchase**, and show the order flip to **Paid** with the green **PayPal Capture Verification Matrix (V1–V7)**.
+>    - This 30-second sequence gives bulletproof credibility that this is not a mock or an edit.
+> 
+> 3. **Nominating the Right Devpost Tracks on Submission:**
+>    - In the Devpost submission form, select:
+>      - **Grand Prize**
+>      - **Best Use of Agentic Commerce ($5,000)** (Spend rail + multi-seller basket thesis)
+>      - **Best Use of PayPal + AI ($5,000)** (Multi-seller split settlement + Groq LLM tool calling)
+>      - **Best Demo Delivery ($5,000)** (For this high-impact video)
+>      - **Render Sponsor Prize** (Deployed on Render with committed `render.yaml`)
 
 ---
 
@@ -14,7 +27,7 @@ Prize this is aimed at: **Best Demo Delivery ($5,000)**, with the same footage s
 | Check | Why |
 |---|---|
 | Open the site 10 minutes early and leave the tab open | Free Render tier sleeps after ~15 min idle; a cold start adds 40s of white screen to shot one. |
-| Sign in as `customer@demo.dev` / `Customer@12345` | Checkout needs an email on the order. Guest carts cannot place one. |
+| 1-Click Guest Checkout | Pre-filled with `shopper@demo.dev` in cart drawer — 1-click checkout without sign-in barriers! |
 | Empty the cart | The demo should build a basket on camera. |
 | Zoom the browser to 110%, hide bookmarks bar | Text must be legible on a phone screen at 720p. |
 | Note the PayPal sandbox buyer login | You will type it during the approval — have it on a sticky note, not in a tab. |
