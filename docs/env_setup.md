@@ -236,8 +236,8 @@ Two interchangeable brains sit behind one contract. Both use the same closed too
   > `openai/gpt-oss-20b` (cheaper, faster). List what your key can actually reach with:
   >
   > ```bash
-  > curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $LLM_API_KEY" \
-  >   | python3 -c "import json,sys; print([\"m['id']\" for m in json.load(sys.stdin)['data']])"
+  > curl -s https://api.groq.com/openai/v1/models \
+  >   -H "Authorization: Bearer $LLM_API_KEY" | grep -o '"id":"[^"]*"' | sort
   > ```
 
 * **Loop budgets** (defaults from `contracts/agent_tools.json` `limits`): `LLM_MAX_ITERATIONS=6`,
