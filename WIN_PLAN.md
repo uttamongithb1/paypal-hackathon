@@ -47,6 +47,16 @@ environment. Until you click through that once, the claim "end-to-end" is one st
 
 ## 2. What the audit found wrong
 
+### 2.0 The header was broken on every phone and tablet (Design) — FIXED
+
+Rendering the site in a real browser (rather than reading the CSS) showed the bar kept its desktop
+60px height while the mobile nav wrapped to a second row, and `overflow` stayed visible — so the nav
+painted *outside* the white bar, on top of the page heading. Every phone showed "Catalogue" twice,
+overlapping. Separately, the header's minimum content width is 938px and the only reflow breakpoint
+was 720px, so **every viewport from 721–938px scrolled sideways** — an iPad in portrait had its cart
+button off-screen. Fixed in `4e57c30`, verified in Chrome at 320/360/375/390/414/430/721/768/820/
+900/938/940/980/1024/1280px: no horizontal overflow anywhere, 78/78 tests still pass.
+
 ### 2.1 The dashboards contradict each other (Design)
 
 Merchant overview on the live instance:
@@ -62,7 +72,8 @@ Analytics on the same instance:
 views: 735   cartAdds: 128   checkoutAttempts: 33   purchases: 14
 ```
 
-Zero revenue beside a 42.42% conversion rate and 14 purchases. A judge who opens the merchant
+Zero revenue beside a 42.42% conversion rate and 14 purchases. The merchant product table makes it
+worse: it lists "SOLD 356" per SKU while all-time paid revenue reads `$0.00`. A judge who opens the merchant
 dashboard sees a shop that either is not selling or does not know whether it is. Two causes:
 
 - `SEED_ON_BOOT` seeds *products and analytics events* but not *orders*, so history is half-there.
