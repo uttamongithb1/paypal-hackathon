@@ -106,7 +106,7 @@ export const env = {
   llmMaxIterations: int('LLM_MAX_ITERATIONS', 6),
   llmPerCallTimeoutMs: int('LLM_PER_CALL_TIMEOUT_MS', 8000),
   llmTurnTimeoutMs: int('LLM_TURN_TIMEOUT_MS', 45000),
-  llmMaxRetries: int('LLM_MAX_RETRIES', 1),
+  llmMaxRetries: int('LLM_MAX_RETRIES', 2),
   budgetGraceBps: int('BUDGET_GRACE_BPS', 300),
   clarifyMaxQuestions: int('CLARIFY_MAX_QUESTIONS', 2),
 

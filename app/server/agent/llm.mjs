@@ -180,5 +180,8 @@ const retryAfterMs = (response, bodyText) => {
 const backoff = (attempt, suggestedMs = null) => {
   const base = 250 * 2 ** attempt;
   const wait = suggestedMs === null ? base : Math.max(base, suggestedMs);
-  return new Promise((resolve) => setTimeout(resolve, Math.min(wait, 5000)));
+  // Providers compute their hint from your actual headroom in the window ("try again in 9.9s"
+  // means 9.9s is when the request will fit). Clamping it shorter guarantees the retry fails the
+  // same way, so the ceiling is the turn budget, not an arbitrary five seconds.
+  return new Promise((resolve) => setTimeout(resolve, Math.min(wait, 15_000)));
 };
