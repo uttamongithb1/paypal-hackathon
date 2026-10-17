@@ -151,6 +151,46 @@ LLM_MODEL=gpt-4.1-mini
 
 ---
 
+## Deploy it (Render, free)
+
+The repo has a `render.yaml` blueprint — **Render → New → Blueprint → pick this repo** and it
+configures itself. The two secrets are prompted for on first deploy:
+
+| Variable | Value |
+|---|---|
+| `PAYPAL_CLIENT_ID` | from developer.paypal.com → Apps & Credentials → **Sandbox** |
+| `PAYPAL_CLIENT_SECRET` | same app, "Show" next to the secret |
+
+Everything else is generated. `JWT_SECRET` and `PII_HASH_PEPPER` are created per service, never
+committed, and `COOKIE_SECURE=true` is set because the app is now served over HTTPS.
+
+**Why it works on an ephemeral disk:** the store is a JSON file, and free tiers wipe it on restart.
+`SEED_ON_BOOT` (on by default) seeds the catalogue whenever the store is empty — so a cold instance
+still wakes up as a complete shop with 24 products and the demo logins. It seeds *only* when the
+store is empty, so a restart never destroys data.
+
+**The free-plan trade-off, stated plainly:** Render spins down after ~15 minutes of inactivity and
+the next request takes ~50 seconds to wake. For a judged demo that is a real risk — a judge who
+clicks a sleeping link may see a timeout. Three ways to handle it:
+
+1. Upgrade that one service to **Starter ($7/month)** for the judging window (Dec 1–15). No spin-down.
+2. Keep it free and point a free uptime pinger (cron-job.org, UptimeRobot) at `/api/v1/readyz`
+   every 10 minutes. Crude, but it keeps the instance warm.
+3. Accept the cold start and put the ~50s in the description so nobody thinks it is broken.
+
+Option 1 for three weeks costs less than a takeaway meal and removes the only failure mode you
+cannot control on judging day.
+
+**Where not to deploy:** Vercel, Netlify, Cloudflare Workers and similar serverless platforms.
+They are a poor fit for this app — a long-lived Express process plus a writable filesystem is the
+whole design, and the file store would be frozen or thrown away between invocations. If you ever
+need serverless, the fix is `MONGO_URI` plus the Mongo driver, which is documented but not built.
+
+**Other hosts that work:** Railway and Fly.io (both fine, both want a card), Cloud Run (works, but
+scale-to-zero and ephemeral disk mean the same cold-start issue), or any small VPS with
+`bash dev-up.sh` behind Caddy. Render is recommended only because it is a sponsor and needs no
+Dockerfile.
+
 ## Architecture
 
 ```

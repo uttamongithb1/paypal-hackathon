@@ -67,6 +67,10 @@ export const env = {
   guestSessionTtl: str('GUEST_SESSION_TTL', '30d'),
   cookieName: str('SESSION_COOKIE_NAME', 'sid'),
   cookieSecure: bool('COOKIE_SECURE', false),
+  // Hosted deployments usually get an ephemeral disk, and a blank store means a blank site. When
+  // this is on, boot seeds the catalogue if (and only if) the store is empty — so a fresh dyno,
+  // container or free-tier instance comes up as a working shop with no manual step.
+  seedOnBoot: bool('SEED_ON_BOOT', true),
   piiHashPepper: str('PII_HASH_PEPPER', 'dev-only-pepper-change-me-before-production'),
 
   paypalMode: str('PAYPAL_MODE', 'simulator'),

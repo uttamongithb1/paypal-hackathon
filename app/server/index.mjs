@@ -15,6 +15,26 @@ if (problems.length) {
 }
 
 const container = await buildContainer();
+
+// Self-seeding for hosted environments. Ephemeral disks (Render, Cloud Run, any free tier) start
+// empty, and an empty store serves an empty shop. Seeding only when the catalogue is missing keeps
+// restarts cheap and never overwrites a store that already has data.
+if (env.seedOnBoot) {
+  const products = container.store.collection('products').find({});
+  if (products.length === 0) {
+    const started = Date.now();
+    const { seedAll } = await import('../scripts/seed-lib.mjs');
+    // No demo orders on boot: generating them runs through the real payment path, which would make
+    // live PayPal calls (and stall) on a host configured for sandbox mode.
+    const result = await seedAll(container, { demoOrders: false, analytics: true });
+    await container.store.flush();
+    logger.info('store.seeded', {
+      reason: 'empty store on boot', products: result.products.length,
+      merchants: Object.keys(result.merchants).length, ms: Date.now() - started
+    });
+  }
+}
+
 const app = createApp(container);
 
 // Maintenance jobs: expire holds/orders, reconcile stuck payments, sweep TTLs.

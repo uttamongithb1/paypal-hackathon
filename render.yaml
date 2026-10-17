@@ -1,0 +1,57 @@
+# Render blueprint — one-click deploy of ShopPilot AI.
+#
+# Why Render: it is a PayPal hackathon sponsor (its own prize), it runs a real Node process rather
+# than serverless functions, and it supports a health check so a bad deploy never receives traffic.
+#
+# The app writes to a file-backed JSON store, so it needs a filesystem that survives the process.
+# Render's free plan has an ephemeral disk, which is why SEED_ON_BOOT is on: every fresh instance
+# comes up as a working shop (24 products, 3 merchants, demo logins) with no manual step. Data
+# created by a visitor then lives until the next spin-down — acceptable, and arguably ideal, for a
+# judged demo that should look identical for every judge.
+#
+# Two values are `sync: false`: set them in the Render dashboard (they must never be in git).
+services:
+  - type: web
+    name: shoppilot-ai
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: app
+    buildCommand: npm ci --omit=dev || npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/v1/readyz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Browsers must only send the session cookie over HTTPS once this is a real URL.
+      - key: COOKIE_SECURE
+        value: "true"
+      # Ephemeral disk → seed the catalogue whenever the store is empty. Never overwrites data.
+      - key: SEED_ON_BOOT
+        value: "true"
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_SETTLEMENT
+        value: auto
+      - key: PLATFORM_FEE_BPS
+        value: "500"
+      - key: PAYPAL_DISBURSEMENT_MODE
+        value: INSTANT
+      # Generated once by Render, never reused between services.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PII_HASH_PEPPER
+        generateValue: true
+      # Set these in the dashboard: Dashboard → Environment → Add Environment Variable.
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      # Optional: a real model instead of the deterministic planner.
+      - key: FEATURE_LIVE_LLM
+        value: "false"
+      - key: LLM_MODEL
+        value: gpt-4.1-mini
+      - key: LLM_API_KEY
+        sync: false
