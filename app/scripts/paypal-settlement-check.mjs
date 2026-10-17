@@ -117,12 +117,29 @@ line('sum check', `${plan.units.reduce((s, u) => s + u.amountMinor, 0)} === ${or
 console.log('\nStep 3 — PayPal Orders v2 create with `payee` + `platform_fees`\n');
 let created = null;
 let rejection = null;
+let feesTaken = true;
 try {
   created = await gateway.createOrder({ order, plan, requestId: `probe-create-${order.orderNumber}` });
   ok(`accepted — PayPal order ${created.id} (status ${created.status})`);
 } catch (error) {
   rejection = error;
-  bad(`rejected — ${error.issue ?? error.message}${error.debugId ? ` (debug ${error.debugId})` : ''}`);
+  bad(`rejected — ${error.originalIssue ?? error.issue ?? error.message}${error.debugId ? ` (debug ${error.debugId})` : ''}`);
+
+  // PayPal rejecting `platform_fees` does not imply it rejects `payee`. Retry the same split without
+  // the commission: if that works, sellers are still paid directly and only ShopPilot's cut is
+  // missing — a very different (and much better) outcome than no split at all.
+  if (/(platform_fee|SPLIT_SETTLEMENT_UNSUPPORTED)/i.test(`${error.originalIssue ?? ''} ${error.issue ?? ''} ${error.message ?? ''}`)) {
+    const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0 });
+    try {
+      created = await gateway.createOrder({ order, plan: noFee, requestId: `probe-create-nofee-${order.orderNumber}` });
+      feesTaken = false;
+      ok(`retried without platform_fees — accepted (PayPal order ${created.id})`);
+      plan.units = noFee.units;
+    } catch (retryError) {
+      bad(`payees are refused too — ${retryError.originalIssue ?? retryError.issue ?? retryError.message}`);
+      rejection = retryError;
+    }
+  }
 }
 
 // ── 4. READ IT BACK: DID THE MONEY GO WHERE WE SAID? ────────────────────────
@@ -156,6 +173,21 @@ if (created) {
     const approve = (fetched.links ?? []).find((l) => l.rel === 'approve' || l.rel === 'payer-action');
     console.log(`    ${approve?.href ?? '(no approve link returned)'}`);
     console.log(`    npm run paypal:settlement -- --capture ${created.id}\n`);
+  } else if (units.length >= 2 && payeesSeen === units.length && !feesTaken) {
+    verdict = 'split-no-fee';
+    console.log('');
+    ok('this account supports multi-seller PAYMENTS — every seller has their own payee,');
+    ok('so each one is paid directly by PayPal.');
+    warn('it does NOT support `platform_fees`, so ShopPilot cannot take its commission on these');
+    warn('transactions. PayPal refuses that with PLATFORM_FEES_NOT_SUPPORTED until the account is');
+    warn('enabled for Complete Payments Platform for Marketplaces and Platforms.');
+    console.log('');
+    console.log('  The app already handles this: `PAYPAL_SETTLEMENT=auto` sends the split without the fee,');
+    console.log('  records `settlement_fee_waived` on the order, and the UI states that no commission was');
+    console.log('  taken. Sellers being paid is the story; the missing commission is a footnote.');
+    console.log('');
+    console.log(`  Approve as a sandbox BUYER, then read back the per-seller captures:`);
+    console.log(`    npm run paypal:settlement -- --capture ${created.id}`);
   } else if (units.length >= 2 && payeesSeen === 0) {
     verdict = 'no-payee';
     console.log('');

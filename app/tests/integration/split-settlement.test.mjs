@@ -16,11 +16,13 @@ import { startServer, asNewCustomer } from '../helpers/harness.mjs';
 const server = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'split', PLATFORM_FEE_BPS: '500' } });
 const fallbackServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_SPLIT_UNSUPPORTED: 'true' } });
 const singleServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'single' } });
+const noFeeServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_FEES_UNSUPPORTED: 'true' } });
 
 test.after(async () => {
   await server.stop();
   await fallbackServer.stop();
   await singleServer.stop();
+  await noFeeServer.stop();
 });
 
 /**
@@ -204,4 +206,32 @@ test('split settlement does not widen what a seller can see', async () => {
   // Every seller in the shared order is a real, distinct payee — no unit silently points at Vertex.
   const units = shared.body.order.payment.settlement.units;
   assert.equal(new Set(units.map((u) => u.payeeEmail)).size, units.length, 'each unit pays a different seller');
+});
+
+test('when only platform_fees is refused, sellers are still paid — as a split without commission', async () => {
+  const client = await asNewCustomer(noFeeServer.base, 'split-nofee');
+  await cartAcrossSellers(client);
+  const created = await placeOrder(client);
+
+  const settlement = created.body.order.payment.settlement;
+  // This is the state a real self-serve sandbox account is usually in: PayPal answers
+  // PLATFORM_FEES_NOT_SUPPORTED. Giving up the split over a missing commission would throw away
+  // the whole point of the feature, so the app degrades to "split, no fee" instead of "single".
+  assert.equal(settlement.mode, 'split', 'payees still work, so the split must survive');
+  assert.equal(settlement.platformFees, 'unsupported');
+  assert.equal(settlement.units.length, 2);
+  assert.ok(settlement.units.every((u) => u.platformFeeMinor === 0), 'no commission may be recorded when none was taken');
+  assert.equal(settlement.totals.platformFeeMinor, 0);
+
+  const total = created.body.order.amounts.totalMinor;
+  assert.equal(settlement.units.reduce((s, u) => s + u.amountMinor, 0), total, 'the split still reconciles');
+
+  const paid = await pay(client, created.body.order.id, created.body.payment);
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+  assert.equal(paid.body.order.status, 'paid');
+
+  const fresh = await client.call(`/orders/${created.body.order.id}`);
+  const events = fresh.body.order.timeline.map((e) => e.event);
+  assert.ok(events.includes('settlement_fee_waived'), `expected settlement_fee_waived in ${events.join(', ')}`);
+  assert.equal(fresh.body.order.payment.captures.length, 2, 'both sellers still get a capture');
 });

@@ -59,9 +59,14 @@ export function buildPurchaseUnits(order, plan) {
     };
 
     if (plan.mode === 'split' && unit.payee) {
+      // PayPal merchant ids are 13 alphanumeric characters. A malformed one makes the whole create
+      // fail with INVALID_STRING_LENGTH / INVALID_PARAMETER_SYNTAX, so an unusable id is dropped and
+      // the payee is identified by email alone (PayPal accepts either).
+      const merchantId = String(unit.payee.merchantId ?? '').trim();
+      const usableMerchantId = /^[A-Z0-9]{13}$/.test(merchantId);
       purchaseUnit.payee = {
         email_address: unit.payee.emailAddress,
-        ...(unit.payee.merchantId ? { merchant_id: unit.payee.merchantId } : {})
+        ...(usableMerchantId ? { merchant_id: merchantId } : {})
       };
       purchaseUnit.payment_instruction = {
         disbursement_mode: env.paypalDisbursementMode,
@@ -108,7 +113,9 @@ export class PaypalSimulator {
     this.captures = new Map();
     this.webhookEvents = [];
     this.mode = 'simulator';
-    this.simulatedCapability = env.paypalSimSplitUnsupported ? 'split_unsupported' : 'full';
+    this.simulatedCapability = env.paypalSimSplitUnsupported ? 'split_unsupported'
+      : env.paypalSimFeesUnsupported ? 'fees_unsupported'
+        : 'full';
   }
 
   async createOrder({ order, requestId, returnUrl, cancelUrl, plan = null }) {
@@ -118,7 +125,14 @@ export class PaypalSimulator {
     if (this.simulatedCapability === 'split_unsupported' && (plan?.mode === 'split')) {
       // Same typed error the sandbox client raises after classifying a capability rejection, so
       // the `auto` fallback has exactly one code path to handle in both modes.
-      throw new PaypalError('SPLIT_SETTLEMENT_UNSUPPORTED', 'This merchant account is not enabled for platform_fees.', { httpStatus: 422 });
+      throw new PaypalError('SPLIT_SETTLEMENT_UNSUPPORTED', 'This merchant account is not enabled for multi-seller payments.', { httpStatus: 422 });
+    }
+    if (this.simulatedCapability === 'fees_unsupported' && plan?.mode === 'split' && (plan.totals?.platformFeeMinor ?? 0) > 0) {
+      // Payees are fine; only the commission is refused. Mirrors PayPal's PLATFORM_FEES_NOT_SUPPORTED.
+      const error = new PaypalError('SPLIT_SETTLEMENT_UNSUPPORTED', 'The API Caller is not enabled to process transactions with platform_fees.', { httpStatus: 422 });
+      error.originalIssue = 'PLATFORM_FEES_NOT_SUPPORTED';
+      error.platformFeesRejected = true;
+      throw error;
     }
 
     const id = `SIM-${objectId().toUpperCase().slice(0, 12)}`;
@@ -327,7 +341,12 @@ export class PaypalSandbox {
       // Surface the capability gap distinctly: `auto` mode falls back to a single unit rather than
       // failing the shopper, and the reason is recorded instead of being swallowed.
       if (resolved.mode === 'split' && isCapabilityRejection(error)) {
-        throw new PaypalError('SPLIT_SETTLEMENT_UNSUPPORTED', error.message, { httpStatus: 422, raw: error.raw, debugId: error.debugId });
+        // Keep PayPal's own issue code: "platform_fees not supported" and "payee not supported" have
+        // very different remedies, and the caller needs to tell them apart to degrade correctly.
+        const wrapped = new PaypalError('SPLIT_SETTLEMENT_UNSUPPORTED', error.message, { httpStatus: 422, raw: error.raw, debugId: error.debugId });
+        wrapped.originalIssue = error.issue ?? null;
+        wrapped.platformFeesRejected = /platform_fee/i.test(`${error.issue ?? ''} ${error.message ?? ''}`);
+        throw wrapped;
       }
       throw error;
     }

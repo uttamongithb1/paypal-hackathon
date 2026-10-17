@@ -123,6 +123,8 @@ export class PaymentService {
               })),
               /// Kept so the merchant dashboard can show commission earned without re-deriving it.
               totals: plan.totals ?? null,
+              /// 'applied' | 'unsupported' | 'none' — whether a commission was actually taken.
+              platformFees: plan.platformFees ?? (plan.mode === 'split' ? 'applied' : 'none'),
               reason: plan.reasons ?? []
             }
           }
@@ -258,9 +260,42 @@ export class PaymentService {
       return { created, plan };
     } catch (error) {
       const capabilityRejected = ['SPLIT_SETTLEMENT_UNSUPPORTED', 'PAYMENT_INSTRUCTION_NOT_SUPPORTED', 'MSP_NOT_SUPPORTED'].includes(error.issue);
+
+      // Three-tier degradation, in order of how much value survives:
+      //   1. split + platform_fees   — sellers paid directly, ShopPilot takes commission
+      //   2. split, no fees          — sellers still paid directly; the commission is simply not taken
+      //   3. single unit             — one recipient, the shopper is still able to buy
+      // Tier 2 matters: PayPal refusing `platform_fees` (PLATFORM_FEES_NOT_SUPPORTED) says nothing
+      // about `payee`. Giving up the split over a missing commission would throw away the most
+      // valuable part of the payment, which is that each seller is actually paid.
       if (mode === 'auto' && plan.mode === 'split' && capabilityRejected) {
+        const feesRejected = error.platformFeesRejected || /platform_fee/i.test(`${error.originalIssue ?? ''} ${error.message ?? ''}`);
+
+        if (feesRejected && plan.totals?.platformFeeMinor > 0) {
+          const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0 });
+          try {
+            const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan: noFee });
+            noFee.reasons = [...(noFee.reasons ?? []), 'this PayPal account cannot charge a platform fee; sellers are still paid directly'];
+            noFee.platformFees = 'unsupported';
+            this.order.timeline(order._id, 'settlement_fee_waived', 'system', {
+              from: 'split+fees', to: 'split', reason: 'platform_fees not enabled for this account'
+            });
+            this.analytics.emit('payment_settlement_fallback', {
+              sessionId: order.sessionId, userId: order.userId, orderId: order._id,
+              props: { orderId: order._id, reason: 'platform_fees_unsupported' }
+            });
+            logger.warn('payment.settlement.fee_waived', { orderId: order._id, sellers: noFee.units.length });
+            return { created, plan: noFee };
+          } catch (retryError) {
+            // Payees themselves are refused — only now is a single unit the honest answer.
+            if (!isCapabilityRejection(retryError)) throw retryError;
+            logger.warn('payment.settlement.payee_unsupported', { orderId: order._id, issue: retryError.originalIssue ?? retryError.issue });
+          }
+        }
+
         const fallback = settlementPlan(order, { merchants, mode: 'single' });
         fallback.reasons = [...(fallback.reasons ?? []), 'account not enabled for multi-seller payments'];
+        fallback.platformFees = 'none';
         const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan: fallback });
         this.order.timeline(order._id, 'settlement_fallback', 'system', { from: 'split', to: 'single', reason: fallback.reasons.join('; ') });
         this.analytics.emit('payment_settlement_fallback', {

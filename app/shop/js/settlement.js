@@ -36,6 +36,10 @@ export function settlementPanel(order, { merchantId = null } = {}) {
     const reconciles = sum === total;
     const mine = merchantId ? units.find((unit) => unit.merchantId === merchantId) : null;
     const commission = settlement.totals?.platformFeeMinor ?? units.reduce((acc, u) => acc + (u.platformFeeMinor ?? 0), 0);
+    // PayPal only applies `platform_fees` to accounts enabled for the Marketplaces capability. When
+    // it refuses, sellers are still paid directly — but no commission is taken, and saying so is the
+    // difference between an accurate demo and a misleading one.
+    const feesWaived = settlement.platformFees === 'unsupported';
 
     return h('div', { class: 'settlement' }, [
       h('div', { class: 'row row--between' }, [
@@ -46,6 +50,12 @@ export function settlementPanel(order, { merchantId = null } = {}) {
         ? h('div', { class: 'callout callout--success' }, [
             h('strong', { text: `Your share: ${money(mine.amountMinor)}` }),
             h('p', { class: 'note', text: `Paid directly to ${mine.payeeEmail ?? 'your account'}. ShopPilot commission on this sale: ${money(mine.platformFeeMinor ?? 0)}.` })
+          ])
+        : null,
+      feesWaived
+        ? h('div', { class: 'callout callout--warning' }, [
+            h('strong', { text: 'Platform commission not applied' }),
+            h('p', { class: 'note', text: 'This PayPal account is not enabled for the Marketplaces capability, so PayPal refused the platform fee. Each seller is still paid directly — ShopPilot simply takes no commission on this order. Nothing about the buyer’s total changes.' })
           ])
         : null,
       h('div', { class: 'table-wrap' }, [
@@ -77,7 +87,11 @@ export function settlementPanel(order, { merchantId = null } = {}) {
       ]),
       h('div', { class: 'note' }, [
         h('span', { text: `Seller amounts ${money(sum)} ${reconciles ? '=' : '≠'} order total ${money(total)}. ` }),
-        h('span', { text: `Platform commission: ${money(commission)} (${(settlement.totals?.sellerCount ?? units.length)} sellers).` })
+        h('span', {
+          text: feesWaived
+            ? `Platform commission: none taken (${(settlement.totals?.sellerCount ?? units.length)} sellers paid directly).`
+            : `Platform commission: ${money(commission)} (${(settlement.totals?.sellerCount ?? units.length)} sellers).`
+        })
       ])
     ]);
   }

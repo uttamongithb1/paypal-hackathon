@@ -84,6 +84,9 @@ export const env = {
   // Test/demo switch: make the simulator behave like a sandbox account that is NOT enabled for
   // multi-seller payments, so the `auto` fallback path is exercisable without real credentials.
   paypalSimSplitUnsupported: bool('PAYPAL_SIM_SPLIT_UNSUPPORTED', false),
+  // Simulator only: the account can pay several sellers but cannot charge platform_fees — the state
+  // a real self-serve sandbox account is usually in (PLATFORM_FEES_NOT_SUPPORTED).
+  paypalSimFeesUnsupported: bool('PAYPAL_SIM_FEES_UNSUPPORTED', false),
   paypalTimeoutMs: int('PAYPAL_TIMEOUT_MS', 10_000),
   paymentMaxAttempts: int('PAYMENT_MAX_ATTEMPTS', 3),
   quoteTtlMinutes: int('QUOTE_TTL_MINUTES', 15),
