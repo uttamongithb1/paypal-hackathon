@@ -183,10 +183,10 @@ export const createQuote = async (extendHolds = true) => {
   return response.quote ?? response;
 };
 
-export const createOrder = ({ quoteId, quoteHash, contact, savedQuoteId }) =>
+export const createOrder = ({ quoteId, quoteHash, contact, shippingAddress, savedQuoteId }) =>
   api('/orders', {
     method: 'POST',
-    body: { quoteId, quoteHash, contact: contact ?? null, savedQuoteId },
+    body: { quoteId, quoteHash, contact: contact ?? null, shippingAddress: shippingAddress ?? null, savedQuoteId },
     idempotencyKey: `order-${quoteId}`
   });
 

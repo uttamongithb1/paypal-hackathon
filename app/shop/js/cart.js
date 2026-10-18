@@ -5,6 +5,7 @@
 import { $, h, toast, skeleton } from './ui.js';
 import { clearCart, createOrder, createQuote, fetchCart, money, removeCartItem, setCartQuantity, state, track, event } from './api.js';
 import { amountBreakdown } from './cards.js';
+import { deliveryAddressField, readAddressForm, readDeliveryAddress } from './shipping.js';
 
 const drawer = () => $('#cart-drawer');
 
@@ -139,6 +140,9 @@ export async function renderCart() {
         : null
     );
     const blocked = cart.items.some((item) => item.unavailable);
+    // The drawer is rebuilt on every cart change, so whatever the shopper has typed into the
+    // delivery address is carried across rather than wiped.
+    const addressDraft = readAddressForm(document);
     const isGuest = !state.user?.email || state.user?.role === 'guest';
     const guestEmailField = isGuest
       ? h('div', { class: 'field', style: 'margin-bottom: 0.75rem; text-align: left;' }, [
@@ -157,6 +161,7 @@ export async function renderCart() {
       amountBreakdown({ subtotalMinor: cart.subtotalMinor, shippingMinor: 0, taxMinor: 0, totalMinor: cart.subtotalMinor, display: { subtotal: cart.display, shipping: '—', tax: '—', total: cart.display } }),
       h('p', { class: 'note', text: 'Shipping and tax are computed server-side at checkout — the agent never guesses them.' }),
       guestEmailField,
+      deliveryAddressField(addressDraft),
       h('button', {
         class: 'btn btn--primary btn--block',
         type: 'button',
@@ -207,7 +212,8 @@ export async function reviewAndPay() {
       name = name ?? email.split('@')[0];
     }
     const contact = email ? { email, name: name || 'Guest Shopper' } : null;
-    const result = await createOrder({ quoteId: quote.id, quoteHash: quote.hash, contact });
+    const shippingAddress = readDeliveryAddress(document);
+    const result = await createOrder({ quoteId: quote.id, quoteHash: quote.hash, contact, shippingAddress });
     toast(`Order ${result.order.orderNumber} created — approve the payment to finish`, { tone: 'success' });
     closeCart();
     location.assign(`/checkout/${result.order.id}`);

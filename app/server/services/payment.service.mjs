@@ -12,6 +12,7 @@ import { ApiError } from '../lib/errors.mjs';
 import { hashPii, objectId, stableHash } from '../lib/crypto.mjs';
 import { settlementPlan, verifySettlement } from '../payments/settlement.mjs';
 import { formatMoney, toPayPalAmount } from '../lib/money.mjs';
+import { checkoutReturnUrls } from '../lib/return-urls.mjs';
 import { ATTEMPT_STATUS, ORDER_STATUS, PAYMENT_STATUS, assertTransition, canTransition, paypalCaptureRequestId, paypalRequestId } from '../domain/orderState.mjs';
 import env from '../config/env.mjs';
 import logger from '../lib/logger.mjs';
@@ -535,7 +536,7 @@ export class PaymentService {
   }
 
   /** Retry: a NEW attempt on the SAME order (never a new order, never a duplicate charge). */
-  async retry({ orderId, auth }) {
+  async retry({ orderId, auth, origin }) {
     return this.withOrderLock(orderId, async () => {
       const order = this.order.findAuthorised({ orderId, auth });
       if (order.status === ORDER_STATUS.PAID) return { replayed: true, order: this.order.toDto(order), attempt: this.attempts.findOne({ orderId, status: ATTEMPT_STATUS.SUCCEEDED }) };
@@ -553,7 +554,7 @@ export class PaymentService {
         throw new ApiError('QUOTE_STALE', 'Prices changed for this order. Review the new total and approve again.', { details: { diff: [] } });
       }
       this.order.orders.updateOne({ _id: orderId }, { 'payment.status': PAYMENT_STATUS.NONE, 'payment.failureReason': undefined });
-      const { attempt, paypalOrderId } = await this.startAttempt(this.order.find({ orderId }));
+      const { attempt, paypalOrderId } = await this.startAttempt(this.order.find({ orderId }), checkoutReturnUrls(origin, order));
       return { order: this.order.toDto(this.order.find({ orderId })), attempt, paypalOrderId };
     });
   }

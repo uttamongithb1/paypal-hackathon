@@ -69,8 +69,12 @@ Rules:
 2. Include the full `breakdown` — `item_total`, `tax_total`, `shipping` (omit `shipping` if 0? **No**: send `"0.00"` for explicitness) and any `discount`. PayPal rejects inconsistent breakdowns; the builder asserts `item_total + tax + shipping === value` before sending (throws `INTERNAL_AMOUNT_BUILDER` in dev, logs + alerts in prod).
 3. `items[]`: one entry per order line — `name` (≤ 127 chars, truncated), `description` (≤ 127), `unit_amount`, `quantity` (string), `category: "PHYSICAL_GOODS"`, `sku`.
 4. `purchase_units[0].custom_id` and `invoice_id` = our `orderNumber` (max 127 chars). This is how webhooks are matched back to our orders even if we lose the paypalOrderId mapping.
-5. `application_context` (or the JS SDK equivalents): `brand_name: "ShopPilot AI (demo)"`, `shipping_preference: "GET_FROM_FILE"`, `user_action: "PAY_NOW"`, `landing_page: "LOGIN"` for sandbox convenience.
-6. Idempotency: header `PayPal-Request-Id: pp:create:{orderId}:{attemptNo}` (≤ 108 chars, only `A–Z a–z 0–9 - _ .`; our ids are hex, safe). Deterministic ⇒ a retried create returns the same PayPal order.
+5. `payment_source.paypal.experience_context` — **not** `application_context`, which PayPal has deprecated in favour of this path. A create-order that still uses the old block opens a hosted checkout page with no way back to the order, and the buyer's approval ends on "Things don't appear to be working at the moment" (`genericError`) instead of on the order.
+   - `brand_name: "ShopPilot AI"`, `locale: "en-US"`, `landing_page: "LOGIN"`, `user_action: "PAY_NOW"`.
+   - `return_url` / `cancel_url`: the origin of the request that created the order, plus `/checkout/{orderId}?from=paypal` (and `&cancelled=1` for the cancel URL). These are **required** — without them PayPal cannot hand the buyer back and the order stays unpaid.
+   - `shipping_preference: "SET_PROVIDED_ADDRESS"` when the shopper gave us a delivery address, `"GET_FROM_FILE"` otherwise (the buyer's own PayPal wallet address). If PayPal refuses our address, the create is retried once with `"GET_FROM_FILE"` and the address block removed.
+6. `purchase_units[].shipping`: the delivery address we collected (`name.full_name` + `address.address_line_1/address_line_2/admin_area_1/admin_area_2/postal_code/country_code`) on **every** unit, because a split order still ships as one parcel. Omitted entirely when there is no address.
+7. Idempotency: header `PayPal-Request-Id: pp:create:{orderId}:{attemptNo}` (≤ 108 chars, only `A–Z a–z 0–9 - _ .`; our ids are hex, safe). Deterministic ⇒ a retried create returns the same PayPal order.
 
 ---
 

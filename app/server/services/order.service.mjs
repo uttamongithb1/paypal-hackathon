@@ -27,7 +27,7 @@ export class OrderService {
    * Create the order the customer explicitly approved. Recomputes the quote first: if the money
    * moved, it refuses with QUOTE_STALE and a diff (never silently charges a new amount).
    */
-  async createFromQuote({ quoteId, quoteHash, contact, auth }) {
+  async createFromQuote({ quoteId, quoteHash, contact, shippingAddress, auth }) {
     const quoteDoc = this.quote.byId(quoteId);
     if (!quoteDoc) throw new ApiError('QUOTE_STALE', 'That quote has expired. Review your cart and try again.');
     if (quoteDoc.sessionId !== auth.session._id) throw new ApiError('FORBIDDEN', 'That quote belongs to another session.');
@@ -86,6 +86,15 @@ export class OrderService {
       quoteId: quoteDoc._id,
       quoteHash: quoteDoc.hash,
       contact: { email: String(contact.email).toLowerCase(), name: contact.name },
+      shippingAddress: shippingAddress ? {
+        name: shippingAddress.name,
+        line1: shippingAddress.line1,
+        line2: shippingAddress.line2 ?? '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        postalCode: shippingAddress.postalCode,
+        countryCode: shippingAddress.countryCode
+      } : null,
       payment: { provider: 'paypal', status: 'none', amountVerified: false, lastAttemptNo: 0 },
       timeline: [{ at: new Date().toISOString(), event: 'order_created', actor: 'user' }],
       expiresAt: new Date(Date.now() + env.quoteTtlMinutes * 60_000).toISOString()

@@ -10,6 +10,7 @@ import env from '../config/env.mjs';
 import logger from '../lib/logger.mjs';
 import { formatMoney } from '../lib/money.mjs';
 import { token as randomToken, unsignCookie } from '../lib/crypto.mjs';
+import { checkoutReturnUrls, requestOrigin } from '../lib/return-urls.mjs';
 import { requirementChips } from '../agent/requirement.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -226,19 +227,32 @@ export function registerRoutes(app, c) {
     const email = req.auth.user.email || body.contact?.email;
     if (!email) throw new ApiError('VALIDATION_ERROR', 'An email address is required to place the order.');
     if (!req.auth.user.email && body.contact?.email) {
-      store.collection('users').updateOne({ _id: req.auth.user._id }, {
-        email: body.contact.email,
-        emailLower: body.contact.email.toLowerCase(),
-        displayName: body.contact.name || req.auth.user.displayName
-      });
-      req.auth.user.email = body.contact.email;
+      // The shopper's email is claimed on the guest record so the receipt and the order list find
+      // them. The address on the order is what matters, though, and the address is already taken
+      // by someone else — a second guest on the same device, or the same shopper coming back
+      // without signing in. Failing the whole order with a duplicate-key error would punish the
+      // shopper for an account that is not theirs, so the claim is skipped and the order still
+      // carries the address for its receipt.
+      try {
+        store.collection('users').updateOne({ _id: req.auth.user._id }, {
+          email: body.contact.email,
+          emailLower: body.contact.email.toLowerCase(),
+          displayName: body.contact.name || req.auth.user.displayName
+        });
+        req.auth.user.email = body.contact.email;
+      } catch (err) {
+        logger.info('order.contact_email.not_claimed', { userId: req.auth.user._id, reason: err.message });
+      }
     }
     const key = idempotencyKey(req, { sessionId: req.auth.session._id });
     const work = async () => {
       const created = await order.createFromQuote({ ...body, auth: req.auth });
       let attempt = null;
       try {
-        attempt = await payment.startAttempt(created, {});
+        // The PayPal order carries the return/cancel pair for the hosted checkout. Without them
+        // PayPal has nowhere to send the buyer back to and the approval dies on a PayPal error page.
+        const { returnUrl, cancelUrl } = checkoutReturnUrls(requestOrigin(req, env.webOrigin), created);
+        attempt = await payment.startAttempt(created, { returnUrl, cancelUrl });
       } catch (err) {
         logger.error('order.paypal_create.failed', { orderId: created._id, error: err.message });
         // The order exists and holds are in place; the user can retry payment from checkout.
@@ -374,7 +388,7 @@ export function registerRoutes(app, c) {
   }));
 
   v1.post('/payments/:orderId/retry', rateLimit(env.rates.payment), asyncHandler(async (req, res) => {
-    const result = await payment.retry({ orderId: req.params.orderId, auth: req.auth });
+    const result = await payment.retry({ orderId: req.params.orderId, auth: req.auth, origin: requestOrigin(req, env.webOrigin) });
     res.status(201).json({
       order: result.order,
       payment: { paypalOrderId: result.paypalOrderId ?? result.attempt?.paypalOrderId, attemptNo: result.attempt?.attemptNo, mode: payment.gateway.mode, requiresApproval: true }
@@ -583,6 +597,14 @@ export function registerRoutes(app, c) {
       if (!event) throw new ApiError('VALIDATION_ERROR', 'No capture exists for that order yet.');
       const result = await payment.ingestWebhook({ headers: {}, body: event });
       res.json({ event, result });
+    }));
+
+    v1.get('/dev/paypal/order/:orderId', asyncHandler(async (req, res) => {
+      if (payment.gateway.mode !== 'simulator') throw new ApiError('FORBIDDEN', 'This view requires PAYPAL_MODE=simulator.');
+      const doc = order.find({ orderId: req.params.orderId });
+      const paypalOrderId = doc.payment?.paypalOrderId;
+      if (!paypalOrderId) throw new ApiError('NOT_FOUND', 'That order has no PayPal order yet.');
+      res.json(await payment.gateway.getOrder(paypalOrderId));
     }));
 
     v1.post('/dev/jobs/reconcile', asyncHandler(async (_req, res) => {

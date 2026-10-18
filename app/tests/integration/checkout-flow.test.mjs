@@ -345,3 +345,33 @@ test('merchant can refund a paid order, transitioning state and updating payment
   assert.ok(afterRefund.body.order.payment.refundId);
 });
 
+
+test('a second guest using an email that is already claimed still gets an order', async () => {
+  // The shopper's email is claimed on the guest record, and emails are unique. A second guest on
+  // the same device — or the same shopper coming back without signing in — used to get a 409
+  // duplicate-key error and no order at all. The order only needs the address for its receipt.
+  const email = 'repeat.shopper@demo.dev';
+  const first = createClient(base);
+  await first.guest();
+  const products = await first.call('/products?limit=24');
+  const product = products.body.items.filter((p) => p.stock > 3).sort((a, b) => b.stock - a.stock)[0];
+  await first.call('/cart/items', { method: 'POST', body: { productId: product.id, quantity: 1 } });
+  const firstQuote = await first.call('/checkout/quote', { method: 'POST', body: { extendHolds: true } });
+  const firstOrder = await first.call('/orders', {
+    method: 'POST',
+    body: { quoteId: firstQuote.body.quote.id, quoteHash: firstQuote.body.quote.hash, contact: { email, name: 'Repeat Shopper' } }
+  });
+  assert.equal(firstOrder.status, 201, JSON.stringify(firstOrder.body));
+
+  const second = createClient(base);
+  await second.guest();
+  const other = products.body.items.filter((p) => p.stock > 3).sort((a, b) => b.stock - a.stock)[1];
+  await second.call('/cart/items', { method: 'POST', body: { productId: other.id, quantity: 1 } });
+  const secondQuote = await second.call('/checkout/quote', { method: 'POST', body: { extendHolds: true } });
+  const secondOrder = await second.call('/orders', {
+    method: 'POST',
+    body: { quoteId: secondQuote.body.quote.id, quoteHash: secondQuote.body.quote.hash, contact: { email, name: 'Repeat Shopper' } }
+  });
+  assert.equal(secondOrder.status, 201, `the second order failed: ${JSON.stringify(secondOrder.body)}`);
+  assert.equal(secondOrder.body.order.contact.email, email);
+});

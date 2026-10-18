@@ -201,6 +201,13 @@ Two endpoints answer different questions, and the difference matters when someth
 2. Copy **Client ID** → `PAYPAL_CLIENT_ID`; **Secret** → `PAYPAL_CLIENT_SECRET`. The storefront reads the client id from `/api/v1/version` at runtime, so there is nothing to rebuild and nothing to expose in the browser beyond that public value.
 3. Ensure the app has the scope `https://uri.paypal.com/services/payments/payment/authcapture` (included by default) and enable **Negative Testing** for decline scenarios.
 4. **Sandbox → Accounts**: create/collect two test buyers — one personal buyer with a positive balance (happy path) and one for decline testing. Sandbox buyer passwords are set from the dashboard.
+   - **Give the happy-path buyer a balance of $10,000.** A personal sandbox account pays from its own
+     PayPal balance, so a basket above the balance cannot be paid — and the failure surfaces inside
+     PayPal's own checkout page, not as an error message from ShopPilot. The catalogue's cheapest
+     items are $129–$219, so a $300 basket is a good demo; a $2,539 basket is not.
+   - The buyer also needs an address in its wallet, or at least a country. ShopPilot now sends
+     `shipping_preference: SET_PROVIDED_ADDRESS` with the address the shopper typed, so the wallet
+     address is not needed — but the buyer account must still be a *confirmed* personal account.
 5. Start the tunnel: `ngrok http 4000` → copy the HTTPS URL. (Only needed for webhooks — the demo captures synchronously.)
 6. In the sandbox app → **Webhooks** → add `https://<tunnel>/api/v1/webhooks/paypal`, subscribe to `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.PENDING`, then copy the generated **Webhook ID** → `PAYPAL_WEBHOOK_ID`.
 7. Run `npm run paypal:check` to confirm the connection; a `GET /api/v1/readyz` should report `paypal: ok`.

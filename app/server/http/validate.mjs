@@ -42,11 +42,21 @@ export const schemas = {
   createOrder: z.object({
     quoteId: id,
     quoteHash: z.string().min(8).max(128),
-    contact: z.object({ email: z.string().email(), name: z.string().max(80).optional() }).strict()
+    contact: z.object({ email: z.string().email(), name: z.string().max(80).optional() }).strict().nullable().optional(),
+    // Physical goods need a delivery address before PayPal opens its review page. Without one the
+    // checkout is told to use the buyer's wallet address, which a sandbox account often has not set.
+    shippingAddress: z.object({
+      name: z.string().min(2).max(80),
+      line1: z.string().min(3).max(120),
+      line2: z.string().max(120).optional(),
+      city: z.string().min(2).max(80),
+      state: z.string().min(2).max(80),
+      postalCode: z.string().min(2).max(20),
+      countryCode: z.string().length(2).toUpperCase()
+    }).strict().nullable().optional()
   }).strict(),
   capture: z.object({ paypalOrderId: z.string().min(4).max(64).optional(), simulatedOutcome: z.enum(['approve', 'decline', 'insufficient_funds', 'pending', 'amount_mismatch', 'error']).optional() }).strict(),
-  refundOrder: z.object({ reason: z.string().min(1).max(200).optional() }).strict(),
-  chat: z.object({
+  refundOrder: z.object({ reason: z.string().min(1).max(200).optional() }).strict(),  chat: z.object({
     sessionId: z.string().min(4).max(80).optional(),
     message: z.string().min(1).max(4000),
     clientMessageId: z.string().max(80).optional(),

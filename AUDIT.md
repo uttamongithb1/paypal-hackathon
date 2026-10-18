@@ -19,7 +19,7 @@ repo would know any of it exists.** No video, no submission text, no CI badge, a
 
 | Criterion | Weight | Score | Trajectory |
 |---|---|---|---|
-| Technological Implementation *(tiebreaker)* | 20% | **9.0** | Strong. Real sandbox orders, 14 tools, settlement ladder, grounding guardrail, 111 tests. The V1–V8 panel now shows the checks the server actually ran. |
+| Technological Implementation *(tiebreaker)* | 20% | **9.0** | Strong. Real sandbox orders, 14 tools, settlement ladder, grounding guardrail, 131 tests. The V1–V8 panel now shows the checks the server actually ran. |
 | Design | 20% | **9.0** | Was 7.5 this morning. Header fixed, dashboards reconcile, zero axe violations. |
 | Potential Impact | 20% | **6.0** | **Weakest.** The argument is implied, never stated. |
 | Innovation | 20% | **7.5** | Real, but buried. Not the headline anywhere. |

@@ -58,6 +58,23 @@ export function buildPurchaseUnits(order, plan) {
       }))
     };
 
+    if (order.shippingAddress) {
+      // PayPal shows this on the review page. With shipping_preference=SET_PROVIDED_ADDRESS it is
+      // the address the buyer cannot change, so it has to be a real one we collected — otherwise
+      // PayPal falls back to the buyer's wallet, which a sandbox account often has not set.
+      purchaseUnit.shipping = {
+        name: { full_name: String(order.shippingAddress.name).slice(0, 300) },
+        address: {
+          address_line_1: String(order.shippingAddress.line1).slice(0, 300),
+          ...(order.shippingAddress.line2 ? { address_line_2: String(order.shippingAddress.line2).slice(0, 300) } : {}),
+          admin_area_1: String(order.shippingAddress.state).slice(0, 300),
+          admin_area_2: String(order.shippingAddress.city).slice(0, 300),
+          postal_code: String(order.shippingAddress.postalCode).slice(0, 60),
+          country_code: String(order.shippingAddress.countryCode).slice(0, 2)
+        }
+      };
+    }
+
     if (plan.mode === 'split' && unit.payee) {
       // PayPal merchant ids are 13 alphanumeric characters. A malformed one makes the whole create
       // fail with INVALID_STRING_LENGTH / INVALID_PARAMETER_SYNTAX, so an unusable id is dropped and
@@ -78,6 +95,42 @@ export function buildPurchaseUnits(order, plan) {
 }
 
 /**
+ * The buyer-facing settings for the hosted checkout.
+ *
+ * `application_context` is deprecated: PayPal moved these to
+ * `payment_source.paypal.experience_context`. A create-order that still uses the old block opens a
+ * checkout page with no return/cancel URL, and the hosted page then fails with "Things don't
+ * appear to be working at the moment" (genericError) instead of completing the approval.
+ * `return_url` is what sends the buyer back to the order, so it is mandatory whenever the browser
+ * is the one that finishes the flow.
+ */
+export function buildExperienceContext(order, { returnUrl, cancelUrl } = {}) {
+  return {
+    brand_name: 'ShopPilot AI',
+    locale: 'en-US',
+    landing_page: 'LOGIN',
+    user_action: 'PAY_NOW',
+    // With an address of our own, PayPal shows it and the buyer cannot change it. Without one it
+    // falls back to the buyer's wallet address, which a sandbox account often has never set.
+    shipping_preference: order.shippingAddress ? 'SET_PROVIDED_ADDRESS' : 'GET_FROM_FILE',
+    ...(returnUrl ? { return_url: returnUrl } : {}),
+    ...(cancelUrl ? { cancel_url: cancelUrl } : {})
+  };
+}
+
+/**
+ * The exact body sent to POST /v2/checkout/orders. Extracted so the shape can be asserted in a
+ * test — this is the request that decides whether PayPal's hosted page works at all.
+ */
+export function buildCreateOrderPayload(order, plan, { returnUrl, cancelUrl } = {}) {
+  return {
+    intent: 'CAPTURE',
+    purchase_units: buildPurchaseUnits(order, plan),
+    payment_source: { paypal: { experience_context: buildExperienceContext(order, { returnUrl, cancelUrl }) } }
+  };
+}
+
+/**
  * Does this PayPal error mean "your account cannot do multi-seller payments"? Sandbox accounts are
  * frequently not enabled for the Marketplaces capability, so `auto` mode needs to tell that apart
  * from a genuine failure and fall back rather than failing the shopper's payment.
@@ -91,6 +144,22 @@ export function isCapabilityRejection(error) {
   return [
     'platform_fees', 'platform fee', 'payment_instruction', 'not supported', 'not enabled',
     'msp_not_supported', 'partner_fee', 'not eligible', 'capability'
+  ].some((needle) => haystack.includes(needle));
+}
+
+/**
+ * Did PayPal refuse the shipping address we supplied? These are address-validation problems, not
+ * capability problems, and they are recoverable: the buyer's wallet address can be used instead.
+ */
+export function isShippingRejection(error) {
+  const haystack = [
+    error?.issue,
+    error?.message,
+    typeof error?.raw === 'string' ? error.raw : JSON.stringify(error?.raw ?? '')
+  ].filter(Boolean).join(' ').toLowerCase();
+  return [
+    'missing_shipping_address', 'shipping_address', 'invalid_shipping', 'shipping address',
+    'postal code', 'postal_code', 'country code', 'country_code', 'address'
   ].some((needle) => haystack.includes(needle));
 }
 
@@ -150,6 +219,9 @@ export class PaypalSimulator {
       create_time: new Date().toISOString(),
       returnUrl,
       cancelUrl,
+      // The simulator stores the same context the sandbox client sends, so a test can hold the
+      // two clients to one shape instead of trusting that they agree.
+      experience_context: buildExperienceContext(order, { returnUrl, cancelUrl }),
       settlement: plan?.mode ?? 'single',
       purchase_units: buildPurchaseUnits(order, plan ?? settlementPlan(order, { mode: 'single' })),
       orderRef: order._id
@@ -343,9 +415,10 @@ export class PaypalSandbox {
     throw new PaypalError('UNKNOWN', 'PayPal request failed', { httpStatus: 502 });
   }
 
-  async createOrder({ order, requestId, plan = null }) {
+  async createOrder({ order, requestId, returnUrl, cancelUrl, plan = null }) {
     const resolved = plan ?? settlementPlan(order, { mode: 'single' });
-    const purchaseUnits = buildPurchaseUnits(order, resolved);
+    const payload = buildCreateOrderPayload(order, resolved, { returnUrl, cancelUrl });
+    const purchaseUnits = payload.purchase_units;
 
     // Guard: PayPal rejects inconsistent breakdowns (payments_paypal.md §3.2). Checked per unit,
     // because with several sellers a single bad unit fails the whole order.
@@ -361,16 +434,28 @@ export class PaypalSandbox {
       throw new PaypalError('INTERNAL_AMOUNT_BUILDER', 'Settlement units do not sum to the order total', { httpStatus: 500 });
     }
 
-    const payload = {
-      intent: 'CAPTURE',
-      purchase_units: purchaseUnits,
-      application_context: { brand_name: 'ShopPilot AI (demo)', shipping_preference: 'GET_FROM_FILE', user_action: 'PAY_NOW' }
-    };
+    const experienceContext = payload.payment_source.paypal.experience_context;
 
     try {
       const data = await this.request('/v2/checkout/orders', { method: 'POST', body: payload, requestId });
-      return { id: data.id, status: data.status, settlement: resolved.mode };
+      return { id: data.id, status: data.status, settlement: resolved.mode, shippingPreference: experienceContext.shipping_preference };
     } catch (error) {
+      // A merchant-provided address can be refused (bad country code, address PayPal will not
+      // accept). Falling back to the buyer's own wallet address keeps the payment possible.
+      if (experienceContext.shipping_preference === 'SET_PROVIDED_ADDRESS' && isShippingRejection(error)) {
+        logger.warn('paypal.shipping_address.rejected_falling_back', { orderId: order._id, issue: error.issue, message: error.message });
+        const fallbackContext = { ...experienceContext, shipping_preference: 'GET_FROM_FILE' };
+        const fallbackPayload = {
+          intent: 'CAPTURE',
+          purchase_units: purchaseUnits.map((unit) => {
+            const { shipping, ...rest } = unit;
+            return rest;
+          }),
+          payment_source: { paypal: { experience_context: fallbackContext } }
+        };
+        const data = await this.request('/v2/checkout/orders', { method: 'POST', body: fallbackPayload, requestId: `${requestId}-noship` });
+        return { id: data.id, status: data.status, settlement: resolved.mode, shippingPreference: 'GET_FROM_FILE' };
+      }
       // Surface the capability gap distinctly: `auto` mode falls back to a single unit rather than
       // failing the shopper, and the reason is recorded instead of being swallowed.
       if (resolved.mode === 'split' && isCapabilityRejection(error)) {

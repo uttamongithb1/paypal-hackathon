@@ -11,6 +11,7 @@ import {
 import { $, h, humanStatus, skeleton, statusTone, toast, openModal } from './ui.js';
 import { settlementPanel, settlementBadge, verificationMatrix } from './settlement.js';
 import { amountBreakdown } from './cards.js';
+import { formatAddress } from './shipping.js';
 
 let pollTimer = null;
 const stopPolling = () => {
@@ -295,6 +296,12 @@ export async function renderCheckout(orderId) {
               ))
             ])
           ]),
+          order.shippingAddress
+            ? h('div', { class: 'callout' }, [
+                h('strong', { text: 'Delivering to' }),
+                h('div', { class: 'note', text: `${order.shippingAddress.name} · ${formatAddress(order.shippingAddress)}` })
+              ])
+            : null,
           h('div', { class: 'callout' }, [
             h('strong', { text: 'What happens when you approve' }),
             h('ol', { class: 'note' }, [

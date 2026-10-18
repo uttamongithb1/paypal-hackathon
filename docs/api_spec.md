@@ -155,7 +155,9 @@ Notes: shipping rule table and tax in `prd.md` §5.4.1; holds are extended, neve
 ### POST `/orders` *(idempotent — the "Approve & Pay" click)*
 ```json
 // req
-{ "quoteId":"q_…", "quoteHash":"9f2c…", "contact": { "email":"buyer@example.com", "name":"A. Buyer" } }
+{ "quoteId":"q_…", "quoteHash":"9f2c…", "contact": { "email":"buyer@example.com", "name":"A. Buyer" },
+  "shippingAddress": { "name":"A. Buyer","line1":"12 Brigade Road","line2":"Flat 402",
+                        "city":"Gorakhpur","state":"Uttar Pradesh","postalCode":"273001","countryCode":"IN" } }
 // 201
 { "order": { "id":"…","orderNumber":"SP-2026-000123","status":"awaiting_payment",
     "amounts": { "totalMinor":190304,"currency":"USD","display":"$1,903.04" },
@@ -176,6 +178,8 @@ Owner-scoped (customer, session, merchant of a line, admin). Returns the order w
   "createdAt":"…","expiresAt":"…",
   "amounts":{ "subtotalMinor":175800,"shippingMinor":0,"taxMinor":14504,"totalMinor":190304,"currency":"USD" },
   "contact":{ "email":"buyer@example.com" },
+  "shippingAddress":{ "name":"A. Buyer","line1":"12 Brigade Road","line2":"Flat 402",
+                       "city":"Gorakhpur","state":"Uttar Pradesh","postalCode":"273001","countryCode":"IN" },
   "payment":{ "provider":"paypal","status":"created","paypalOrderId":"5O19…","amountVerified":false,"lastAttemptNo":1,
     "settlement":{ "mode":"split","reason":[],
       "units":[{ "referenceId":"m1","merchantId":"e756…","merchantName":"Vertex Systems",
