@@ -2,30 +2,19 @@
  * Visual check of the platform console in a real browser.
  * Not part of the suite (it needs a Chromium download) — a dev tool for verifying the page.
  *
+ *   npx playwright install --with-deps chromium   # once
  *   node scripts/admin-console-shot.mjs [outfile]
  */
 import { startServer, createClient } from '../tests/helpers/harness.mjs';
-
-// Puppeteer is not a dependency of this project — it is a heavy, developer-only tool. Install it
-// on demand: npm i puppeteer --no-save
-let puppeteer;
-try {
-  ({ default: puppeteer } = await import('puppeteer'));
-} catch {
-  console.error('This script needs Puppeteer, which is not installed:\n  npm i puppeteer --no-save');
-  process.exit(2);
-}
+import { chromium } from 'playwright';
 
 const out = process.argv[2] ?? '/tmp/admin-console.png';
 const server = await startServer({ seed: 'catalogue' });
 const { base } = server;
 
-const browser = await puppeteer.launch({
-  headless: true,
-  args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-popup-blocking']
-});
-const page = await browser.newPage();
-await page.setViewport({ width: 1440, height: 1000 });
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-popup-blocking'] });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const page = await context.newPage();
 
 const errors = [];
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
@@ -35,12 +24,11 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.
 const client = createClient(base);
 await client.guest();
 await client.login('admin@demo.dev', 'Admin@12345');
-for (const [name, value] of client.cookies.entries()) {
-  await page.setCookie({ name, value, domain: '127.0.0.1', path: '/' });
-}
+const cookies = [...client.cookies.entries()].map(([name, value]) => ({ name, value, domain: '127.0.0.1', path: '/' }));
+await context.addCookies(cookies);
 
-await page.goto(`${base}/admin`, { waitUntil: 'networkidle2', timeout: 45000 });
-await new Promise((r) => setTimeout(r, 1200));
+await page.goto(`${base}/admin`, { waitUntil: 'networkidle', timeout: 45000 });
+await page.waitForTimeout(1200);
 
 const summary = await page.evaluate(() => {
   const kpis = [...document.querySelectorAll('#admin-body .kpi')].map((k) => ({

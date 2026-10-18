@@ -242,7 +242,7 @@ app works offline. Photography is presentation only — it never touches price, 
 ## Architecture
 
 ```
-shop/                 Vanilla-ESM storefront: chat rail, catalogue, cart drawer, checkout, orders, merchant
+shop/                 Vanilla-ESM storefront: catalogue + AI assistant, cart drawer, checkout, orders, merchant, platform console
 server/
   http/               Express 5 app, routes, validation (zod), middleware, error mapping
   agent/              Requirement extraction · prompt builder · tool registry · orchestrator (SSE)

@@ -19,16 +19,6 @@ const statusLine = (order) =>
 export async function renderOrders() {
   const host = $('#orders-body');
   host.replaceChildren(skeleton(3));
-  if (!state.user || state.user.role === 'guest') {
-    host.replaceChildren(
-      h('div', { class: 'empty-state' }, [
-        h('h3', { text: 'Sign in to see your orders' }),
-        h('p', { class: 'note', text: 'Guest orders are claimed automatically when you sign in with the same email.' }),
-        h('button', { class: 'btn btn--primary', type: 'button', text: 'Sign in', onclick: () => document.getElementById('auth-button')?.click() })
-      ])
-    );
-    return;
-  }
   try {
     const { items } = await fetchOrders({ limit: 20 });
     if (!items.length) {
@@ -36,6 +26,7 @@ export async function renderOrders() {
       return;
     }
     host.replaceChildren(
+      state.user?.role === 'guest' ? h('div', { class: 'callout' }, [h('strong', { text: 'Orders from this guest session' }), h('p', { class: 'note', text: 'Keep this browser session to return to your orders. An account is optional.' }), h('button', { class: 'btn btn--secondary btn--sm', text: 'Sign in / create account', onclick: () => document.getElementById('auth-button').click() })]) : h('span'),
       h('div', { class: 'table-wrap' }, [
         h('table', {}, [
           h('thead', {}, [h('tr', {}, [h('th', { text: 'Order' }), h('th', { text: 'Placed' }), h('th', { class: 'num', text: 'Total' }), h('th', { text: 'Status' }), h('th', { text: '' })])]),

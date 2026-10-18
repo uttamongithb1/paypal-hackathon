@@ -2,12 +2,13 @@
  * The conversation pane: sends messages, renders SSE frames (tool activity, ui components, deltas),
  * keeps the requirement chips + quick replies in sync, and owns the product detail modal.
  */
-import { fetchPriceHistory, fetchProduct, state, streamChat, track, event, retryPayment } from './api.js';
+import { api, fetchPriceHistory, fetchProduct, state, streamChat, track, event, retryPayment } from './api.js';
 import { $, h, openModal, renderProductArt, specChips, toast, humanStatus, statusTone, escapeHtml, closeModal } from './ui.js';
 import { checkoutCard, clarification, comparison, orderStatusCard, productCards } from './cards.js';
 
 const log = () => $('#chat-log');
 
+let sending = false;
 const messages = new Map(); // messageId → { body, bubble }
 
 function scroller() {
@@ -145,9 +146,13 @@ function setComposerBusy(busy, label) {
   button.textContent = busy ? label ?? 'Working…' : 'Send';
 }
 
-export async function send(rawMessage) {
+export async function send(rawMessage, { attachedProductIds } = {}) {
+  if (sending) { toast("Please wait for the current answer."); return; }
+  document.dispatchEvent(new CustomEvent("sp:assistant-open"));
   const message = String(rawMessage ?? '').trim();
   if (!message) return;
+  sending = true;
+  $('#new-search').disabled = true;
   const input = $('#chat-input');
   input.value = '';
   setComposerBusy(true, 'Working…');
@@ -162,6 +167,7 @@ export async function send(rawMessage) {
 
   try {
     const end = await streamChat(message, {
+      attachedProductIds,
       onFrame: async (frame) => {
         if (frame.event === 'message.start') stopThinking();
         if (frame.event === 'tool.activity') {
@@ -204,8 +210,10 @@ export async function send(rawMessage) {
     toast(error.message, { tone: 'danger' });
   } finally {
     stopThinking();
+    sending = false;
+    $('#new-search').disabled = false;
     setComposerBusy(false);
-    input.focus();
+    if (!$('#view-shop').hidden && !$('#modal-overlay') && $('#cart-drawer').hidden) input.focus();
   }
 }
 
@@ -244,7 +252,7 @@ export async function openProduct(slugOrId) {
             text: 'Ask the agent about this',
             onclick: async () => {
               closeModal();
-              await send(`is the ${product.title} right for me?`);
+              await send(`Is the ${product.title} right for me? Explain its strengths and trade-offs.`, { attachedProductIds: [product.id] });
             }
           })
         ])
@@ -270,7 +278,7 @@ export function start() {
   const requirement = state.chat?.requirement;
   const greeting = requirement
     ? `Welcome back. I still have your requirement (${humanStatus(requirement.categorySlug ?? 'anything')}). Want me to keep going from there, or start something new?`
-    : 'Hi, I am ShopPilot. Tell me what you need — the product, a budget and anything that matters (battery life, weight, camera). I search this store’s real catalogue, compare real prices, and prepare a checkout that only you can approve.';
+    : 'Hi, I am ShopPilot. Tell me what you need — the product, a budget and anything that matters (battery life, weight, camera). I search this demo catalogue, compare server-calculated prices, and prepare a checkout that only you can approve.';
   const agent = addMessage('agent');
   agent.bubble.textContent = greeting;
   if (requirement) agent.body.append(requirementChipRow(state.chat.requirementChips ?? []));
@@ -289,4 +297,21 @@ export function start() {
         : ['laptop for full-stack development under $900', 'phone for photography under $800', 'headphones for flights under $350']
   );
   return escapeHtml(greeting);
+}
+
+/** Restore only this authenticated session's server-side conversation. */
+export async function restoreConversation() {
+  log().replaceChildren();
+  messages.clear();
+  if (state.session?.id) {
+    try {
+      const { items } = await api(`/chat/sessions/${encodeURIComponent(state.session.id)}/messages?limit=100`);
+      for (const item of items ?? []) {
+        const message = addMessage(item.role === 'user' ? 'user' : 'agent');
+        message.bubble.textContent = item.content ?? '';
+        for (const component of item.ui ?? []) renderComponent(component, message.body);
+      }
+    } catch { /* Greeting remains usable if history is unavailable. */ }
+  }
+  start();
 }
