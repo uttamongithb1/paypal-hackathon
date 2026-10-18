@@ -92,7 +92,7 @@ export async function renderCart() {
   if (!body) return;
   body.replaceChildren(skeleton(2));
   try {
-    const cart = await fetchCart();
+    const cart = await fetchCart({ notify: false }); // Rendering must not emit a new render event.
     updateBadge();
     if (!cart.items.length) {
       body.replaceChildren(

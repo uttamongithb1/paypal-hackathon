@@ -1,31 +1,21 @@
 /**
  * Application shell: routing, session bootstrap, auth, theme, catalogue rail, event wiring.
- * Routes: / (chat), /shop, /orders, /orders/:id, /checkout/:orderId, /merchant
+ * Routes: / (catalogue), /assistant, /shop, /orders, /orders/:id, /checkout/:orderId, /merchant
  */
 import {
-  api, fetchCategories, fetchProducts, loadSession, on, register, signIn, signOut, state, track, event
+  api, fetchCategories, loadSession, on, register, signIn, signOut, state, track, event
 } from './api.js';
 import { $, $$, closeModal, h, openModal, skeleton, toast } from './ui.js';
-import { start as startChat, send, resetConversation, openProduct } from './chat.js';
-import { railItem } from './cards.js';
+import { send, resetConversation } from './chat.js';
 import { updateBadge, wireCart } from './cart.js';
 import { renderCheckout } from './checkout.js';
 import { renderOrderDetail, renderOrders } from './orders.js';
 import { renderMerchant } from './merchant.js';
+import { openAssistant, closeAssistant, wireAssistant } from './assistant.js';
+import { restoreConversation } from './chat.js';
 import { renderCatalogue } from './catalogue.js';
 
-/**
- * The catalogue rail is a companion to the shop view, not a view of its own — it shares the grid
- * column with the chat pane. Mapping every view to the panes it owns keeps that explicit instead of
- * hiding the rail on the one screen that needs it.
- */
-const VIEW_PANES = {
-  shop: ['shop', 'rail'],
-  catalogue: ['catalogue'],
-  orders: ['orders'],
-  checkout: ['checkout'],
-  merchant: ['merchant']
-};
+const VIEW_PANES = { catalogue: ['catalogue'], orders: ['orders'], checkout: ['checkout'], merchant: ['merchant'] };
 
 const setView = (view) => {
   const panes = VIEW_PANES[view] ?? [view];
@@ -50,9 +40,10 @@ async function route() {
     await renderOrderDetail(orderDetail[1]);
     return;
   }
-  if (path === '/catalogue') {
+  if (['/', '/shop', '/catalogue', '/assistant'].includes(path)) {
     setView('catalogue');
     await renderCatalogue();
+    if (path === '/assistant') openAssistant({ expanded: true });
     return;
   }
   if (path === '/orders') {
@@ -65,9 +56,8 @@ async function route() {
     await renderMerchant();
     return;
   }
-  setView('shop');
-  startChat();
-  await renderRail();
+  setView('catalogue');
+  await renderCatalogue();
   track([event('view_loaded', { surface: 'shop' })]);
 }
 
@@ -77,51 +67,46 @@ const navigate = (href, { replace = false } = {}) => {
   route();
 };
 
-/* ── Catalogue rail ─────────────────────────────────────────────────────── */
-async function renderRail() {
-  const grid = $('#rail-grid');
-  if (!grid) return;
-  const category = $('#category-filter')?.value ?? '';
-  const query = $('#rail-search')?.value ?? '';
-  grid.replaceChildren(skeleton(3));
-  try {
-    const { items, total } = await fetchProducts({ category, q: query, limit: 8 });
-    grid.replaceChildren(
-      ...(items.length
-        ? items.map((product) => railItem(product, { onDetails: (slug) => openProduct(slug) }))
-        : [h('div', { class: 'empty-state' }, [h('p', { class: 'note', text: 'No products match that filter.' })])])
-    );
-    $('#rail-count').textContent = `${total ?? items.length} products`;
-  } catch (error) {
-    grid.replaceChildren(h('div', { class: 'callout callout--danger', text: error.message }));
-  }
-}
-
 /* ── Auth modal ─────────────────────────────────────────────────────────── */
 function openAuth() {
-  const email = h('input', { type: 'email', placeholder: 'you@example.com', value: 'customer@demo.dev' });
-  const password = h('input', { type: 'password', placeholder: 'Password', value: 'Customer@12345' });
+  if (state.user && state.user.role !== 'guest') {
+    openModal({ title: 'Your account', body: h('div', { class: 'stack' }, [
+      h('strong', { text: state.user.email }),
+      h('p', { class: 'note', text: `Signed in as ${state.user.role}. Signing out starts a separate guest session.` })
+    ]), actions: [
+      h('button', { class: 'btn btn--secondary', text: 'Keep shopping', onclick: closeModal }),
+      h('button', { class: 'btn btn--primary', text: 'Sign out', onclick: async (event) => {
+        event.currentTarget.disabled = true;
+        try { await signOut(); closeModal(); await restoreConversation(); await route(); toast('Signed out. You can keep shopping as a guest.'); }
+        catch (error) { event.currentTarget.disabled = false; toast(error.message, { tone: 'danger' }); }
+      } })
+    ] });
+    return;
+  }
+  const email = h('input', { type: 'email', placeholder: 'you@example.com', id: 'auth-email', autocomplete: 'email', required: true });
+  const password = h('input', { type: 'password', placeholder: 'Password', id: 'auth-password', autocomplete: 'current-password', required: true, minlength: '8' });
   const error = h('div', {});
   openModal({
     title: state.user && state.user.role !== 'guest' ? `Signed in as ${state.user.email}` : 'Sign in or create an account',
-    body: h('div', { class: 'stack' }, [
+    body: h('form', { class: 'stack', id: 'auth-form', onsubmit: (event) => { event.preventDefault(); doAuth(false); } }, [
       error,
-      h('div', {}, [h('label', { text: 'Email' }), email]),
-      h('div', {}, [h('label', { text: 'Password' }), password]),
-      h('div', { class: 'callout' }, [
-        h('strong', { text: 'Demo accounts' }),
-        h('p', { class: 'note', text: 'customer@demo.dev / Customer@12345 · merchant@demo.dev / Merchant@12345 · admin@demo.dev / Admin@12345' })
-      ]),
-      h('p', { class: 'note', text: 'Signing in claims any orders placed as a guest with the same email and merges your cart.' })
+      h('div', {}, [h('label', { text: 'Email', for: 'auth-email' }), email]),
+      h('div', {}, [h('label', { text: 'Password', for: 'auth-password' }), password]),
+      h('p', { class: 'note', text: 'No account needed to browse, chat or check out. Sign in to access your saved account. Your current guest cart is preserved.' })
     ]),
     actions: [
-      h('button', { class: 'btn btn--ghost', type: 'button', text: 'Cancel', onclick: closeModal }),
+      h('button', { class: 'btn btn--ghost', type: 'button', text: 'Continue as guest', onclick: closeModal }),
       h('button', { class: 'btn btn--secondary', type: 'button', text: 'Create account', onclick: () => doAuth(true) }),
-      h('button', { class: 'btn btn--primary', type: 'button', text: 'Sign in', onclick: () => doAuth(false) })
+      h('button', { class: 'btn btn--primary', type: 'submit', form: 'auth-form', text: 'Sign in' })
     ]
   });
 
   async function doAuth(isRegister) {
+    if ($('#modal-overlay').dataset.busy === 'true') return;
+    if (!email.reportValidity() || !password.reportValidity()) return;
+    $('#modal-overlay').dataset.busy = 'true';
+    const buttons = $$('#modal-overlay .modal__foot button');
+    buttons.forEach(button => button.disabled = true);
     error.replaceChildren();
     try {
       if (isRegister) {
@@ -132,9 +117,13 @@ function openAuth() {
         toast(`Signed in as ${result.user.email}${result.merged ? ' · cart merged' : ''}${result.claimedOrders ? ` · ${result.claimedOrders} order(s) claimed` : ''}`, { tone: 'success' });
       }
       closeModal();
+      await restoreConversation();
       await route();
     } catch (authError) {
       error.replaceChildren(h('div', { class: 'callout callout--danger', text: `${authError.message} (${authError.code})` }));
+    } finally {
+      if ($('#modal-overlay')) $('#modal-overlay').dataset.busy = 'false';
+      buttons.forEach(button => button.disabled = false);
     }
   }
 }
@@ -142,6 +131,8 @@ function openAuth() {
 /* ── Wiring ─────────────────────────────────────────────────────────────── */
 function wire() {
   wireCart();
+  wireAssistant();
+  $('#cart-button').addEventListener('click', () => closeAssistant({ restoreFocus: false }));
   $('#chat-form').addEventListener('submit', (event) => {
     event.preventDefault();
     const input = $('#chat-input');
@@ -151,24 +142,9 @@ function wire() {
   });
   $('#new-search').addEventListener('click', () => {
     resetConversation();
-    toast('Fresh conversation — the requirement history is cleared for this session.');
+    toast('Conversation view cleared. Your shopping preferences are kept; tell the assistant if you want to change them.');
   });
-  // First-run hero: each example is a real prompt handed straight to the agent.
-  for (const button of $$('#hero-examples [data-prompt]')) {
-    button.addEventListener('click', () => {
-      track([event('hero_example_clicked', { prompt: button.dataset.prompt })]);
-      send(button.dataset.prompt);
-    });
-  }
-  $('#auth-button').addEventListener('click', async () => {
-    if (state.user && state.user.role !== 'guest') {
-      await signOut();
-      toast('Signed out — you are browsing as a guest again.');
-      route();
-    } else {
-      openAuth();
-    }
-  });
+  $('#auth-button').addEventListener('click', openAuth);
   $('#theme-toggle').addEventListener('click', () => {
     const root = document.documentElement;
     const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -178,12 +154,6 @@ function wire() {
     } catch {
       /* private mode */
     }
-  });
-  $('#category-filter').addEventListener('change', renderRail);
-  let searchTimer;
-  $('#rail-search').addEventListener('input', () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(renderRail, 220);
   });
   document.addEventListener('click', (clickEvent) => {
     const link = clickEvent.target.closest('a[data-link]');
@@ -216,8 +186,6 @@ function wire() {
   try {
     await loadSession();
     await fetchCategories();
-    const filter = $('#category-filter');
-    filter.replaceChildren(h('option', { value: '', text: 'All categories' }), ...state.categories.map((category) => h('option', { value: category.slug, text: category.name ?? category.slug })));
     try {
       const version = await api('/version');
       state.env = { ...version, currency: version.currency ?? 'USD' };
@@ -233,8 +201,13 @@ function wire() {
     }
     $('#planner-hint').textContent = 'The agent can search, compare, add to cart and prepare an order — it has no tool that can pay.';
     $('#chat-log').replaceChildren();
+    await restoreConversation();
+    $('#assistant-mode').textContent = state.env?.llm?.live ? 'Live AI · PayPal sandbox demo' : 'Demo planner · no real money';
     await route();
   } catch (error) {
+    $('#assistant-mode').textContent = 'Connection unavailable';
+    $('#catalogue-root').replaceChildren(h('div', { class: 'callout callout--danger', text: 'The store could not connect. Please reload to try again.' }));
+    setView('catalogue');
     $('#chat-log').replaceChildren(
       h('li', { class: 'msg msg--agent' }, [
         h('div', { class: 'msg__avatar', text: 'SP' }),
@@ -249,4 +222,4 @@ function wire() {
   }
 })();
 
-export { navigate, openAuth, renderRail };
+export { navigate, openAuth };

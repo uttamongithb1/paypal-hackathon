@@ -9,6 +9,8 @@
 import { fetchProducts, state, track, event } from './api.js';
 import { $, h, skeleton } from './ui.js';
 import { productCard } from './cards.js';
+import { openAssistant } from './assistant.js';
+import { send } from './chat.js';
 import { openProduct } from './chat.js';
 
 /** Catalogue DTO -> the component payload shape productCard expects. One mapping, one source. */
@@ -64,8 +66,8 @@ export async function renderCatalogue() {
 
   const header = h('div', { class: 'catalogue__head' }, [
     h('div', {}, [
-      h('h1', { class: 'catalogue__title', text: 'Catalogue' }),
-      h('p', { class: 'catalogue__sub', text: 'Everything the agent can recommend — real stock, server-calculated prices, one card per SKU.' })
+      h('h2', { class: 'catalogue__title', text: 'Find your next everyday essential.' }),
+      h('p', { class: 'catalogue__sub', text: 'Browse our demo catalogue. Compare your options. Check out as a guest.' })
     ]),
     h('div', { class: 'catalogue__filters' }, [category, search])
   ]);
@@ -84,7 +86,8 @@ export async function renderCatalogue() {
         return;
       }
       grid.replaceChildren(...items.map((product) => productCard(asCard(product), {
-        onDetails: (id) => openProduct(id)
+        onDetails: (id) => openProduct(id),
+        onAsk: () => send(`Tell me about ${product.title}. What are its strengths and trade-offs?`, { attachedProductIds: [product.id] })
       })));
     } catch (error) {
       grid.replaceChildren(h('div', { class: 'callout callout--danger', text: `Could not load the catalogue: ${error.message}` }));
@@ -92,7 +95,18 @@ export async function renderCatalogue() {
   }
 
   root.replaceChildren(h('div', { class: 'catalogue' }, [
-    header,
+    h('section', { class: 'store-hero' }, [
+      h('span', { class: 'store-hero__eyebrow', text: 'A little guidance. A better choice.' }),
+      h('h1', { text: 'Good finds.\nYour final say.' }),
+      h('p', { text: 'Shop laptops, audio and everyday tech. Need a second opinion? Your AI shopping companion is one click away.' }),
+      h('div', { class: 'row' }, [
+        h('button', { class: 'btn btn--primary', text: '✦ Find it with ShopPilot', onclick: () => openAssistant() }),
+        h('a', { class: 'btn btn--secondary', href: '#products', text: 'Explore products' })
+      ]),
+      h('p', { class: 'note', text: 'No sign-up required · You approve every payment · Sandbox demo, no real money' }),
+      h('div', { class: 'store-hero__art', 'aria-hidden': 'true' }, [h('img', { src: '/products/ascent-book-14.webp', alt: '' }), h('span', { text: 'Less searching. More finding.' })])
+    ]),
+    h('div', { id: 'products' }, [header]),
     h('div', { class: 'catalogue__meta' }, [count]),
     grid
   ]));

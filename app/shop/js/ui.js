@@ -241,8 +241,10 @@ export function toast(message, { tone = 'info', timeout = 4200 } = {}) {
 }
 
 /* ── Modal ──────────────────────────────────────────────────────────────── */
+let modalReturnFocus;
 export function openModal({ title, body, actions = [], size = '' }) {
   closeModal();
+  modalReturnFocus = document.activeElement;
   const overlay = h('div', { class: 'modal-overlay', id: 'modal-overlay', onclick: (event) => { if (event.target === overlay) closeModal(); } }, [
     h('div', { class: `modal ${size}` , role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, [
       h('header', { class: 'modal__head' }, [h('h2', { text: title }), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', text: '✕', onclick: closeModal })]),
@@ -256,11 +258,19 @@ export function openModal({ title, body, actions = [], size = '' }) {
   return overlay;
 }
 const escClose = (event) => {
-  if (event.key === 'Escape') closeModal();
+  if (event.key === 'Escape') { event.stopImmediatePropagation(); closeModal(); }
+  if (event.key === 'Tab') {
+    const focusable = [...($('#modal-overlay')?.querySelectorAll('button:not(:disabled), input:not(:disabled), select, textarea, a[href]') ?? [])].filter(n => n.getClientRects().length);
+    const first = focusable[0], last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
 };
 export function closeModal() {
   document.removeEventListener('keydown', escClose);
-  $('#modal-overlay')?.remove();
+  const existed = $('#modal-overlay');
+  existed?.remove();
+  if (existed && modalReturnFocus?.isConnected) modalReturnFocus.focus({ preventScroll: true });
 }
 
 export const skeleton = (rows = 3) => h('div', { class: 'skeleton-stack' }, Array.from({ length: rows }, () => h('div', { class: 'skeleton' })));

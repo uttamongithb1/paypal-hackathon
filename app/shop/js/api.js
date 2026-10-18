@@ -132,10 +132,10 @@ export const fetchProduct = (slugOrId) => api(`/products/${encodeURIComponent(sl
 export const fetchPriceHistory = (productId) => api(`/products/${productId}/history`);
 
 /* ── Cart ────────────────────────────────────────────────────────────────── */
-export async function fetchCart() {
+export async function fetchCart({ notify = true } = {}) {
   const { cart } = await api('/cart');
   STATE.cart = cart;
-  emit('cart', cart);
+  if (notify) emit('cart', cart);
   return cart;
 }
 export async function addToCart(productId, quantity = 1) {
@@ -250,13 +250,13 @@ export const merchantRefundOrder = (orderId, payload = {}) => api(`/merchant/ord
  * Chat over SSE: POST the message, then dispatch frames as they arrive.
  * Calls onFrame({event, data}) for each frame and resolves with the final message.end payload.
  */
-export async function streamChat(message, { onFrame, clientMessageId, signal } = {}) {
+export async function streamChat(message, { onFrame, clientMessageId, signal, attachedProductIds } = {}) {
   const response = await fetch('/api/v1/chat/stream', {
     method: 'POST',
     credentials: 'same-origin',
     signal,
     headers: { 'content-type': 'application/json', 'x-sp-csrf': readCsrf() ?? '' },
-    body: JSON.stringify({ message, clientMessageId: clientMessageId ?? `cm_${uuid()}` })
+    body: JSON.stringify({ message, attachedProductIds, clientMessageId: clientMessageId ?? `cm_${uuid()}` })
   });
   if (response.status === 429) {
     throw new ApiError({ code: 'RATE_LIMITED', message: 'You are sending messages too quickly — give it a second.', status: 429 });

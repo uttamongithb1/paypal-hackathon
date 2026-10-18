@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <a class="skip-link" href="#chat-input">Skip to the conversation</a>
+  <a class="skip-link" href="#main">Skip to products</a>
 
   <header class="topbar">
     <a class="brand" href="/" data-link>
@@ -20,8 +20,8 @@
     </a>
 
     <nav class="topnav" aria-label="Main">
-      <a href="/shop" data-link data-nav="shop">Shop</a>
-      <a href="/catalogue" data-link data-nav="catalogue">Catalogue</a>
+      <a href="/" data-link data-nav="catalogue">Shop</a>
+      <a href="/assistant" data-link data-nav="assistant">AI assistant</a>
       <a href="/orders" data-link data-nav="orders">Orders</a>
       <a href="/merchant" data-link data-nav="merchant">Merchant</a>
       <a href="/how-it-works" target="_blank" data-nav="how-it-works">How It Works ↗</a>
@@ -40,85 +40,8 @@
     </div>
   </header>
 
-  <main class="layout" id="main">
+  <main class="layout" id="main" tabindex="-1">
     <!-- ── Conversation ──────────────────────────────────────────────────── -->
-    <section class="pane pane--chat" id="view-shop" data-view="shop">
-      <div class="chat-head">
-        <div class="chat-head__copy">
-          <h1 class="chat-head__title">Tell me what you need</h1>
-          <p class="chat-head__sub">Real catalogue, real stock, server-calculated prices — and you approve the payment, always.</p>
-        </div>
-        <button class="btn btn--ghost btn--sm" id="new-search" type="button" title="Clear the conversation">New search</button>
-      </div>
-
-      <!-- First-run hero. Hides itself as soon as the conversation has a second turn (CSS :has). -->
-      <div class="hero">
-        <div class="hero__glow" aria-hidden="true"></div>
-        <div class="hero__inner">
-          <span class="hero__eyebrow"><i class="hero__pulse" aria-hidden="true"></i> Agentic commerce · PayPal sandbox ready</span>
-          <h2 class="hero__title">Ask in plain language.<br /><span class="hero__accent">Pay it yourself.</span></h2>
-          <p class="hero__sub">
-            The agent searches this store's real catalogue, compares real prices and prepares a real
-            PayPal order — then it stops. It has no payment tool. Approval is yours; verification is the server's.
-          </p>
-          <div class="hero__examples" id="hero-examples">
-            <button class="hero__example" type="button" data-prompt="laptop for full-stack development under $900 with 16GB RAM and a 512GB SSD">
-              <strong>Dev laptop under $900</strong><span>16 GB RAM · 512 GB SSD</span>
-            </button>
-            <button class="hero__example" type="button" data-prompt="Can you pay for me automatically?">
-              <strong>Spend rail test</strong><span>Agent refuses autonomous spend</span>
-            </button>
-            <button class="hero__example" type="button" data-prompt="a laptop from Vertex and headphones from AudioCraft under $1500">
-              <strong>Multi-seller bundle</strong><span>Split settlement across 2 merchants</span>
-            </button>
-            <button class="hero__example" type="button" data-prompt="phone for photography under $800">
-              <strong>Phone for photography</strong><span>under $800</span>
-            </button>
-            <button class="hero__example" type="button" data-prompt="headphones for flights under $350">
-              <strong>Flight headphones</strong><span>noise cancelling · under $350</span>
-            </button>
-          </div>
-          <ul class="hero__ticks">
-            <li>Grounded in stock &amp; prices</li>
-            <li>Agent can't spend</li>
-            <li>Capture verified server-side</li>
-          </ul>
-        </div>
-      </div>
-
-      <ol class="chat-log" id="chat-log" aria-live="polite" aria-atomic="false"></ol>
-
-      <div class="composer">
-        <form class="composer__form" id="chat-form" autocomplete="off">
-          <label class="sr-only" for="chat-input">Message ShopPilot</label>
-          <span class="composer__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v16M4 12h16"/></svg>
-          </span>
-          <input class="composer__input" id="chat-input" name="message" placeholder="e.g. a laptop for full-stack development under $900 with 16 GB RAM" maxlength="800" />
-          <button class="btn btn--primary" id="chat-send" type="submit">Send</button>
-        </form>
-        <div class="composer__meta">
-          <div class="quick-replies" id="quick-replies"></div>
-          <span class="composer__hint" id="planner-hint"></span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── Catalogue / cart rail ─────────────────────────────────────────── -->
-    <aside class="pane pane--rail" id="view-rail" data-view="rail" aria-label="Catalogue and cart">
-      <div class="rail-head">
-        <div class="rail-head__row">
-          <h2 class="rail-head__title">Catalogue</h2>
-          <span class="rail-head__count" id="rail-count">…</span>
-        </div>
-        <div class="rail-filters">
-          <select id="category-filter" aria-label="Filter by category"><option value="">All categories</option></select>
-          <input id="rail-search" type="search" placeholder="Search products…" aria-label="Search products" />
-        </div>
-      </div>
-      <div class="rail-grid" id="rail-grid"></div>
-    </aside>
-
     <!-- ── Orders ────────────────────────────────────────────────────────── -->
     <section class="pane pane--wide" id="view-catalogue" data-view="catalogue" hidden>
       <div id="catalogue-root"></div>
@@ -143,6 +66,37 @@
       <div id="merchant-body"></div>
     </section>
   </main>
+
+    <section class="pane pane--chat" id="view-shop" role="dialog" aria-labelledby="assistant-title" hidden>
+      <div class="chat-head">
+        <div class="chat-head__copy">
+          <h2 class="chat-head__title" id="assistant-title">ShopPilot AI</h2>
+          <p class="chat-head__sub">Your shopping companion · you approve every payment.</p>
+        </div>
+        <div class="assistant-controls"><button class="icon-btn" id="assistant-expand" type="button" aria-label="Expand assistant" aria-pressed="false">⤢</button><button class="icon-btn" id="assistant-close" type="button" aria-label="Close assistant">×</button></div>
+      </div>
+
+      <div class="assistant-status"><span id="assistant-mode">Connecting…</span><button class="btn btn--ghost btn--sm" id="new-search" type="button">Clear view</button></div>
+      <ol class="chat-log" id="chat-log" aria-live="polite" aria-atomic="false"></ol>
+
+      <div class="composer">
+        <form class="composer__form" id="chat-form" autocomplete="off">
+          <label class="sr-only" for="chat-input">Message ShopPilot</label>
+          <span class="composer__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v16M4 12h16"/></svg>
+          </span>
+          <input class="composer__input" id="chat-input" name="message" placeholder="Ask about products, your budget, or your cart…" maxlength="800" />
+          <button class="btn btn--primary" id="chat-send" type="submit">Send</button>
+        </form>
+        <div class="composer__meta">
+          <div class="quick-replies" id="quick-replies"></div>
+          <span class="composer__hint" id="planner-hint"></span>
+        </div>
+      </div>
+    </section>
+
+
+  <button class="assistant-launcher" id="assistant-launcher" type="button" aria-controls="view-shop" aria-expanded="false"><span aria-hidden="true">✦</span> Ask ShopPilot AI</button>
 
   <div class="drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" hidden>
     <div class="drawer__scrim" data-close="cart"></div>

@@ -30,7 +30,7 @@ const addButton = (productId, quantity = 1, label = 'Add to cart', { tone = 'pri
     }
   });
 
-export function productCard(card, { revision, superseded = false, onDetails, onCompare } = {}) {
+export function productCard(card, { revision, superseded = false, onDetails, onCompare, onAsk } = {}) {
   const stock = card.stock?.state === 'in_stock' ? 'in_stock' : card.stock?.state;
   const rating = card.rating?.avg ?? (typeof card.rating === 'number' ? card.rating : null);
   const ratingCount = card.rating?.count ?? null;
@@ -80,6 +80,7 @@ export function productCard(card, { revision, superseded = false, onDetails, onC
           text: 'Details',
           onclick: () => onDetails?.(card.productId)
         }),
+        onAsk ? h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: '✦ Ask AI', onclick: onAsk }) : null,
         // Compare only exists inside a conversation, where the agent holds the shortlist. On the
         // catalogue page there is no shortlist yet, so the button is omitted rather than inert.
         onCompare ? h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: 'Compare', onclick: () => onCompare(card.productId) }) : null

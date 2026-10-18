@@ -15,19 +15,23 @@
     "demo": "node scripts/demo.mjs",
     "art": "node scripts/generate-product-art.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test": "node --test --test-reporter=spec \"tests/**/*.test.mjs\"",
-    "test:unit": "node --test \"tests/unit/**/*.test.mjs\"",
-    "test:integration": "node --test \"tests/integration/**/*.test.mjs\"",
-    "test:evals": "node --test \"tests/evals/**/*.test.mjs\"",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "node scripts/run-tests.mjs unit",
+    "test:integration": "node scripts/run-tests.mjs integration",
+    "test:evals": "node scripts/run-tests.mjs evals",
     "ledger": "node scripts/ledger-check.mjs",
     "verify": "npm run test && npm run ledger",
     "verify:demo": "npm run reset && npm run seed -- --demo-orders && npm run test && npm run ledger",
     "paypal:check": "node scripts/paypal-sandbox-check.mjs",
     "paypal:settlement": "node scripts/paypal-settlement-check.mjs",
-    "photos": "node scripts/import-product-photos.mjs"
+    "photos": "node scripts/import-product-photos.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs"
   },
   "dependencies": {
     "express": "^5.3.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }
