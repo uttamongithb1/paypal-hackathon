@@ -12,9 +12,14 @@
  * Falls back to `WEB_ORIGIN` when the request carries no usable Host header.
  */
 export function requestOrigin(req, fallback) {
-  const host = (req?.get?.('host') ?? '').trim();
+  // Render (and every other reverse proxy) forwards the public host in `X-Forwarded-Host`; the
+  // `Host` header can be the proxy's own internal address. Getting this wrong would point the
+  // buyer's return URL at something the browser cannot reach, so the forwarded header wins.
+  const forwardedHost = (req?.get?.('x-forwarded-host') ?? '').split(',')[0].trim();
+  const host = forwardedHost || (req?.get?.('host') ?? '').trim();
   if (!host || host.includes(' ')) return fallback;
-  const protocol = req.protocol === 'https' ? 'https' : 'http';
+  const forwardedProto = (req?.get?.('x-forwarded-proto') ?? '').split(',')[0].trim();
+  const protocol = (forwardedProto || req.protocol) === 'https' ? 'https' : 'http';
   return `${protocol}://${host}`;
 }
 

@@ -161,6 +161,16 @@ describe('requestOrigin', () => {
     assert.equal(requestOrigin(req({ host: 'localhost:4000' }, 'http'), 'https://fallback.dev'), 'http://localhost:4000');
   });
 
+  test('prefers the forwarded host, because the proxy may rewrite Host to an internal address', () => {
+    const headers = { host: '10.0.0.5:8080', 'x-forwarded-host': 'paypal-hackathon.onrender.com' };
+    assert.equal(requestOrigin(req(headers), 'https://fallback.dev'), 'https://paypal-hackathon.onrender.com');
+  });
+
+  test('takes the protocol from the forwarded header too', () => {
+    const headers = { host: '10.0.0.5:8080', 'x-forwarded-host': 'paypal-hackathon.onrender.com', 'x-forwarded-proto': 'https' };
+    assert.equal(requestOrigin(req(headers, 'http'), 'https://fallback.dev'), 'https://paypal-hackathon.onrender.com');
+  });
+
   test('falls back when the request carries no usable host', () => {
     assert.equal(requestOrigin(req({}), 'https://fallback.dev'), 'https://fallback.dev');
   });
