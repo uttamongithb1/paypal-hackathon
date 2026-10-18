@@ -174,15 +174,26 @@ just from the server log.
 ## Deploy it (Render, free)
 
 The repo has a `render.yaml` blueprint — **Render → New → Blueprint → pick this repo** and it
-configures itself. The two secrets are prompted for on first deploy:
+configures itself. Three secrets are prompted for on first deploy:
 
 | Variable | Value |
 |---|---|
 | `PAYPAL_CLIENT_ID` | from developer.paypal.com → Apps & Credentials → **Sandbox** |
 | `PAYPAL_CLIENT_SECRET` | same app, "Show" next to the secret |
+| `LLM_API_KEY` | a Groq key (console.groq.com/keys) |
 
 Everything else is generated. `JWT_SECRET` and `PII_HASH_PEPPER` are created per service, never
 committed, and `COOKIE_SECURE=true` is set because the app is now served over HTTPS.
+
+The blueprint reproduces the deployed demo exactly: `PAYPAL_MODE=sandbox`, `PAYPAL_SETTLEMENT=auto`,
+`PLATFORM_FEE_BPS=500`, and a **live** model — `LLM_PROVIDER=groq`, `LLM_MODEL=openai/gpt-oss-120b`,
+`LLM_BASE_URL=https://api.groq.com/openai/v1` — so a judge who deploys from the blueprint gets the
+same agent, not the deterministic fallback planner. `PAYPAL_WEBHOOK_ID` is optional and is left
+unset by default: without it the server refuses to trust inbound PayPal events, which is the safe
+default, and the demo does not need it because the capture is synchronous.
+
+The host health-checks `/api/v1/healthz` (liveness), not `/api/v1/readyz` (which returns 503 when
+PayPal is unreachable), so a sandbox hiccup degrades checkout instead of taking the site down.
 
 **Why it works on an ephemeral disk:** the store is a JSON file, and free tiers wipe it on restart.
 `SEED_ON_BOOT` (on by default) seeds the catalogue whenever the store is empty — so a cold instance
