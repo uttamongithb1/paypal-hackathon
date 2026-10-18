@@ -225,6 +225,20 @@ PAYPAL_DISBURSEMENT_MODE=INSTANT  # INSTANT | DELAYED
 PAYPAL_SIM_SPLIT_UNSUPPORTED=false  # simulator only: pretend the account cannot split, to test the fallback
 ```
 
+**And one account per seller.** A seller is only paid *directly* if the account behind
+`payee.email_address` really exists on PayPal — the demo placeholders
+(`vertex-systems@sandbox.demo`) are not real accounts, so a split capture cannot pay them. For a
+real multi-seller demo, create one **business** sandbox account per seller and point the
+environment at them (the variable name is the merchant slug in upper case, dashes as underscores):
+
+```bash
+PAYPAL_PAYEE_VERTEX_SYSTEMS=vertex-systems@example.com
+PAYPAL_PAYEE_NOVATECH_RETAIL=novatech-retail@example.com
+PAYPAL_PAYEE_AUDIOPEAK=audiopeak@example.com
+```
+
+Leaving them empty is safe: the settlement falls back to a single unit and records why.
+
 Ask your own account what it supports before recording a demo — this creates a real two-seller
 sandbox order and reads the payees straight back out of it:
 

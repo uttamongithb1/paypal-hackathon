@@ -245,7 +245,7 @@ export class PaymentService {
     const merchants = new Map(
       this.store.collection('merchants').find({}).map((m) => [m._id, m])
     );
-    const plan = settlementPlan(order, { merchants, mode: mode === 'auto' ? 'split' : mode, platformFeeBps: env.platformFeeBps });
+    const plan = settlementPlan(order, { merchants, mode: mode === 'auto' ? 'split' : mode, platformFeeBps: env.platformFeeBps, payeeEmails: env.paypalPayeeEmails });
 
     if (mode === 'auto' && plan.mode === 'single') {
       logger.info('payment.settlement.single', { orderId: order._id, reason: plan.reasons });
@@ -273,7 +273,7 @@ export class PaymentService {
         const feesRejected = error.platformFeesRejected || /platform_fee/i.test(`${error.originalIssue ?? ''} ${error.message ?? ''}`);
 
         if (feesRejected && plan.totals?.platformFeeMinor > 0) {
-          const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0 });
+          const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0, payeeEmails: env.paypalPayeeEmails });
           try {
             const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan: noFee });
             noFee.reasons = [...(noFee.reasons ?? []), 'this PayPal account cannot charge a platform fee; sellers are still paid directly'];
@@ -294,7 +294,7 @@ export class PaymentService {
           }
         }
 
-        const fallback = settlementPlan(order, { merchants, mode: 'single' });
+        const fallback = settlementPlan(order, { merchants, mode: 'single', payeeEmails: env.paypalPayeeEmails });
         fallback.reasons = [...(fallback.reasons ?? []), 'account not enabled for multi-seller payments'];
         fallback.platformFees = 'none';
         const created = await this.gateway.createOrder({ order, requestId: idempotencyKey, returnUrl, cancelUrl, plan: fallback });

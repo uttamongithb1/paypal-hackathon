@@ -74,6 +74,41 @@ describe('settlementPlan', () => {
     { merchantId: 'm3', title: 'Headset', unitPriceMinor: 7999, quantity: 1, productId: 'p3' }
   ], { subtotalMinor: 102799, taxMinor: 8481, shippingMinor: 0, totalMinor: 111280 });
 
+  test('an environment payee address wins over the placeholder in the merchant record', () => {
+    // A seller only gets paid directly if the account behind `payee.email_address` really exists
+    // on PayPal, so the demo can be pointed at a real sandbox business account without editing
+    // the seed.
+    const merchants = {
+      m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: 'vertex-systems@sandbox.demo' },
+      m2: { name: 'NovaTech Retail', slug: 'novatech-retail', payeeEmail: 'novatech-retail@sandbox.demo' }
+    };
+    const plan = settlementPlan(
+      order([{ merchantId: 'm1', title: 'Laptop', unitPriceMinor: 64900, quantity: 1, productId: 'p1' },
+        { merchantId: 'm2', title: 'Monitor', unitPriceMinor: 29900, quantity: 1, productId: 'p2' }],
+      { subtotalMinor: 94800, taxMinor: 7833, shippingMinor: 0, totalMinor: 102633 }),
+      { merchants, mode: 'split', platformFeeBps: 500, payeeEmails: { 'vertex-systems': 'vertex@sb-real.example.com' } }
+    );
+    assert.equal(plan.mode, 'split');
+    assert.equal(plan.units.find((u) => u.referenceId === 'm1').payee.emailAddress, 'vertex@sb-real.example.com');
+    // A seller without an override keeps the address from the merchant record.
+    assert.equal(plan.units.find((u) => u.referenceId === 'm2').payee.emailAddress, 'novatech-retail@sandbox.demo');
+  });
+
+  test('a seller with no payee at all falls back to one unit, and says why', () => {
+    const merchants = {
+      m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: 'vertex@example.com' },
+      m2: { name: 'NovaTech Retail', slug: 'novatech-retail' }
+    };
+    const plan = settlementPlan(
+      order([{ merchantId: 'm1', title: 'Laptop', unitPriceMinor: 64900, quantity: 1, productId: 'p1' },
+        { merchantId: 'm2', title: 'Monitor', unitPriceMinor: 29900, quantity: 1, productId: 'p2' }],
+      { subtotalMinor: 94800, taxMinor: 7833, shippingMinor: 0, totalMinor: 102633 }),
+      { merchants, mode: 'split', platformFeeBps: 500 }
+    );
+    assert.equal(plan.mode, 'single');
+    assert.ok(plan.reasons.some((r) => /payee email/i.test(r)), plan.reasons.join(' | '));
+  });
+
   test('splits into one unit per seller and sums exactly to the order total', () => {
     const plan = settlementPlan(order1, { merchants: MERCHANTS, mode: 'split', platformFeeBps: 500 });
     assert.equal(plan.mode, 'split');

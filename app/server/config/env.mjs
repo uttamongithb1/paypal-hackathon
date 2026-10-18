@@ -97,6 +97,17 @@ export const env = {
   paypalSettlement: str('PAYPAL_SETTLEMENT', 'auto'),
   platformFeeBps: int('PLATFORM_FEE_BPS', 500),
   paypalDisbursementMode: str('PAYPAL_DISBURSEMENT_MODE', 'INSTANT'),
+  // The PayPal account each demo seller is paid into. A seller only receives money directly if the
+  // account behind `payee.email_address` really exists on PayPal, so a real multi-seller demo needs
+  // the seller's own sandbox business account. The variable name is the merchant slug in upper case
+  // with dashes as underscores: PAYPAL_PAYEE_VERTEX_SYSTEMS, PAYPAL_PAYEE_NOVATECH_RETAIL, …
+  // Leaving these empty keeps the demo placeholders, and the settlement falls back to one unit
+  // with the reason recorded on the order.
+  paypalPayeeEmails: {
+    'vertex-systems': str('PAYPAL_PAYEE_VERTEX_SYSTEMS', ''),
+    'novatech-retail': str('PAYPAL_PAYEE_NOVATECH_RETAIL', ''),
+    audiopeak: str('PAYPAL_PAYEE_AUDIOPEAK', '')
+  },
   // Test/demo switch: make the simulator behave like a sandbox account that is NOT enabled for
   // multi-seller payments, so the `auto` fallback path is exercisable without real credentials.
   paypalSimSplitUnsupported: bool('PAYPAL_SIM_SPLIT_UNSUPPORTED', false),

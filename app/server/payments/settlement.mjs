@@ -61,7 +61,7 @@ export function platformFeeFor(amountMinor, feeBps) {
  * @param {number} [options.platformFeeBps]
  * @returns {{mode:string, units:Array, totals:object, reasons:string[]}}
  */
-export function settlementPlan(order, { merchants = {}, mode = 'single', platformFeeBps = 0 } = {}) {
+export function settlementPlan(order, { merchants = {}, mode = 'single', platformFeeBps = 0, payeeEmails = {} } = {}) {
   const lookup = merchants instanceof Map ? merchants : new Map(Object.entries(merchants));
   const reason = [];
 
@@ -104,8 +104,12 @@ export function settlementPlan(order, { merchants = {}, mode = 'single', platfor
   }
 
   // Every seller needs a resolvable payee, or PayPal would silently leave the platform as recipient.
+  // The payee email can come from the environment (a real sandbox business account for the seller)
+  // or from the merchant record. An environment address wins, so the demo can be pointed at real
+  // accounts without touching the seed.
+  const payeeOf = (record) => (record?.slug ? payeeEmails[record.slug] : null) || record?.payeeEmail || record?.email || null;
   const merchantList = [...groups.keys()].map((id) => ({ id, record: lookup.get(id) }));
-  const missing = merchantList.filter(({ record }) => !record || !(record.payeeEmail || record.email));
+  const missing = merchantList.filter(({ record }) => !payeeOf(record));
   if (missing.length) {
     reason.push(`${missing.length} seller(s) have no payee email configured`);
     return single();
@@ -123,7 +127,7 @@ export function settlementPlan(order, { merchants = {}, mode = 'single', platfor
       merchantId: id,
       merchantName: record.name ?? null,
       payee: {
-        emailAddress: record.payeeEmail ?? record.email,
+        emailAddress: payeeOf(record),
         merchantId: record.paypalMerchantId ?? record.paypalMerchant ?? null
       },
       itemTotalMinor: itemTotals[index],
