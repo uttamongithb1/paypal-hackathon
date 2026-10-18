@@ -72,3 +72,18 @@ test('the storefront is told PayPal is down, so it can say so before the shopper
   assert.equal(body.paypalHealth, 'down');
   assert.equal(body.paypalMode, 'sandbox');
 });
+
+test('the default test server never touches a provider', async () => {
+  // The harness pins these, so a developer running the suite with a real app/.env still gets a
+  // hermetic run — no PayPal call, no model call, no secret from the developer's machine.
+  const plain = await startServer({ seed: 'catalogue' });
+  try {
+    const res = await fetch(`${plain.base}/api/v1/version`);
+    const body = await res.json();
+    assert.equal(body.paypalMode, 'simulator', 'the suite must not talk to a real PayPal account');
+    assert.equal(body.llm.live, false, 'the suite must not call a real model');
+    assert.equal(body.paypalClientId, null, 'no client id may leak in from the environment');
+  } finally {
+    await plain.stop();
+  }
+});

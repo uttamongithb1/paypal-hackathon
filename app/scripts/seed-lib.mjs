@@ -123,6 +123,18 @@ export function sessionFor(store, user) {
  */
 export async function seedDemoOrders(container, { merchant, products }) {
   const { store, catalogue, quote, order, payment, cart, analytics } = container;
+  // This path goes through the real payment service, so it would create REAL PayPal sandbox
+  // orders and captures on a machine configured for the sandbox. Seeding must never spend a
+  // provider call by surprise, so the simulator is required and the seeded-history path
+  // (seedDemoHistory, which writes orders without touching PayPal) is used everywhere else.
+  const mode = payment?.gateway?.mode ?? 'simulator';
+  if (mode !== 'simulator') {
+    throw new Error(
+      `Seeding demo orders through the payment flow is a simulator-only operation, and this `
+      + `instance is running PAYPAL_MODE=${mode}. It would create real PayPal sandbox orders. `
+      + `Drop --demo-orders to seed the order history directly instead (no provider calls).`
+    );
+  }
   const customer = store.collection('users').findOne({ emailLower: 'customer@demo.dev' });
   const { session } = sessionFor(store, customer);
   const auth = { session, user: customer };

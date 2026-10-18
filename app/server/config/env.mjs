@@ -170,7 +170,10 @@ export function validateEnv() {
     problems.push('PAYPAL_MODE=sandbox requires PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (or use PAYPAL_MODE=simulator).');
   }
   if (env.featureLiveLlm && !env.llmApiKey) {
-    problems.push('FEATURE_LIVE_LLM=true requires LLM_API_KEY (or leave it false to use the deterministic planner).');
+    problems.push(
+      `FEATURE_LIVE_LLM=true requires LLM_API_KEY — the key for ${env.llmProvider ?? 'the configured provider'} `
+      + `(console.groq.com/keys for Groq). Set it, or set FEATURE_LIVE_LLM=false to use the deterministic planner.`
+    );
   }
   if (env.paypalEnv === 'live' && env.nodeEnv !== 'production') {
     problems.push('PAYPAL_ENV=live is refused outside NODE_ENV=production (demo safety).');

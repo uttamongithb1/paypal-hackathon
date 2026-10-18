@@ -85,9 +85,22 @@ export async function startServer({ seed = 'catalogue', env = {} } = {}) {
     PORT: String(port),
     HOST: '127.0.0.1',
     DATA_DIR: runDir,
-    PAYPAL_MODE: 'simulator',
     NODE_ENV: 'test',
     LOG_LEVEL: process.env.LOG_LEVEL ?? 'error',
+    // Hermetic by construction. The server reads app/.env for anything it is not given here, so
+    // without these the suite would inherit the developer's credentials — and a developer with a
+    // real PayPal sandbox configured would have the tests making real provider calls, or simply
+    // refusing to boot because their .env points at a live model.
+    PAYPAL_MODE: 'simulator',
+    PAYPAL_CLIENT_ID: '',
+    PAYPAL_CLIENT_SECRET: '',
+    PAYPAL_WEBHOOK_ID: '',
+    PAYPAL_API_BASE_URL: '',
+    FEATURE_LIVE_LLM: 'false',
+    LLM_API_KEY: '',
+    MONGO_URI: '',
+    JWT_SECRET: 'test-only-jwt-secret-32-bytes-minimum-length',
+    PII_HASH_PEPPER: 'test-only-pii-pepper-32-bytes-minimum',
     ...env
   };
 

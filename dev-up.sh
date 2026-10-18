@@ -7,6 +7,10 @@
 #
 # Judges: see README.md. Nothing here needs API keys — the default mode is a self-contained
 # PayPal simulator, so this boots a complete working product offline.
+#
+# The seed writes the order history straight into the store. It never calls a payment provider:
+# creating demo orders through the real payment flow is an explicit, simulator-only opt-in
+# (`npm run seed -- --demo-orders`), so running this script can never spend a PayPal call.
 
 set -euo pipefail
 cd "$(dirname "$0")/app"
@@ -36,15 +40,14 @@ fi
 
 step "3/5  Store"
 if [ "$RESEED" = "1" ] || [ ! -f .data/db.json ]; then
-  node scripts/reset.mjs >/dev/null
-  node scripts/seed.mjs --demo-orders | tail -6
+  npm run reset --silent | tail -4
 else
   echo "   existing store kept (.data/db.json) — use --reseed for a clean demo state"
 fi
 
 step "4/5  Self-check"
-node --test tests/unit 2>&1 | grep -E "^# (tests|pass|fail)" | sed 's/^/   /'
-node scripts/ledger-check.mjs 2>&1 | tail -2 | sed 's/^/   /'
+# The same command CI runs: the whole suite, the money invariants, and the published test count.
+npm run verify --silent 2>&1 | tail -6 | sed 's/^/   /'
 
 if [ "$CHECK_ONLY" = "1" ]; then
   step "Done (--check: no server started)"

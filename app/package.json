@@ -23,7 +23,7 @@
     "test:count": "node scripts/test-count.mjs --check",
     "test:count:write": "node scripts/test-count.mjs --write",
     "verify": "node scripts/verify.mjs",
-    "verify:demo": "npm run reset && npm run seed -- --demo-orders && npm run test && npm run ledger",
+    "verify:demo": "npm run reset && npm run verify",
     "paypal:check": "node scripts/paypal-sandbox-check.mjs",
     "paypal:settlement": "node scripts/paypal-settlement-check.mjs",
     "photos": "node scripts/import-product-photos.mjs"
