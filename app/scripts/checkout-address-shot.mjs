@@ -100,15 +100,26 @@ const delivered = await page.evaluate(() => {
   return match ? match[1].replace(/\s+/g, ' ').trim() : null;
 });
 const orderNumber = await page.evaluate(() => document.querySelector('#checkout-body h1')?.textContent ?? '');
+const orderPath = await page.evaluate(() => location.pathname);
 await page.screenshot({ path: path.join(OUT, 'checkout-delivery.png') });
 
 console.log('posted body      :', posted[0] ?? 'none');
 console.log('checkout heading :', orderNumber);
+
+// Coming back from PayPal without a completed approval has to say so in plain language.
+await page.goto(`${BASE}${orderPath}?from=paypal&cancelled=1`, { waitUntil: 'networkidle2' });
+await sleep(1200);
+const returnNote = await page.evaluate(() => {
+  const callout = [...document.querySelectorAll('#checkout-body .callout--warning')][0];
+  return callout?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+});
+await page.screenshot({ path: path.join(OUT, 'checkout-paypal-return.png') });
+console.log('paypal return note:', returnNote);
 console.log('delivery line    :', delivered);
 console.log('console errors   :', errors.length ? errors : 'none');
 
 await browser.close();
 child.kill('SIGTERM');
-const ok = Boolean(delivered) && delivered.includes('Brigade Road') && errors.length === 0;
-console.log(ok ? '✓ the delivery address reaches the checkout page' : '✗ the delivery address did not reach the checkout page');
+const ok = Boolean(delivered) && delivered.includes('Brigade Road') && Boolean(returnNote) && errors.length === 0;
+console.log(ok ? '✓ the delivery address reaches the checkout page, and a cancelled PayPal return explains itself' : '✗ something did not reach the checkout page');
 process.exit(ok ? 0 : 1);

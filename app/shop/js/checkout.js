@@ -167,7 +167,19 @@ function paypalControls(order) {
       createOrder: () => order.payment?.paypalOrderId,
       onApprove: (data) => capture(null, order, 'approve', data?.orderID),
       onCancel: () => toast('Checkout cancelled in PayPal — nothing was charged.', { tone: 'warning' }),
-      onError: (error) => toast(`PayPal error: ${error?.message ?? error}`, { tone: 'danger' })
+      // PayPal's own error page says "Things don't appear to be working at the moment", which
+      // tells nobody anything. The usual cause in a sandbox is the buyer account's balance, or an
+      // account that was never confirmed — so say that instead of repeating the raw message.
+      onError: (error) => {
+        const detail = String(error?.message ?? error ?? '');
+        const looksLikeBalance = /balance|fund|amount|limit/i.test(detail);
+        toast(
+          looksLikeBalance
+            ? `PayPal could not take this payment (${order.amounts.display?.total}). In the sandbox this is normally the buyer account's balance being below the order total — check the sandbox account's balance and try again.`
+            : `PayPal could not open the checkout page${detail ? `: ${detail}` : '.'} Nothing was charged — your order is still reserved.`,
+          { tone: 'danger' }
+        );
+      }
     }).render(host);
   };
   script.onerror = () => host.replaceChildren(h('div', { class: 'callout callout--danger', text: 'Could not load the PayPal SDK (offline?). The order is safe — retry when back online.' }));
@@ -264,11 +276,29 @@ export async function renderCheckout(orderId) {
     const { order } = await fetchOrder(orderId);
     track([event('checkout_viewed', { orderId: order.id, status: order.status })]);
 
+    // PayPal sends the buyer back here after they approve or cancel. If they came back but the
+    // order is still unpaid, PayPal did not complete the approval — and in the sandbox that is
+    // almost always the buyer account's balance being below this order's total. Say so plainly
+    // instead of leaving the shopper staring at a checkout page that looks stuck.
+    const query = new URLSearchParams(location.search);
+    const cameBack = query.get('from') === 'paypal';
+    const cancelled = query.get('cancelled') === '1';
+    const stillUnpaid = ['awaiting_payment', 'payment_failed'].includes(order.status);
+    const paypalReturnNote = !cameBack || !stillUnpaid
+      ? null
+      : h('div', { class: 'callout callout--warning' }, [
+          h('strong', { text: cancelled ? 'You cancelled in PayPal' : 'PayPal came back without taking the payment' }),
+          h('div', { class: 'note', text: cancelled
+            ? 'Nothing was charged. Your order is still reserved until it expires — approve it again whenever you like.'
+            : `Nothing was charged. In the sandbox this is normally the buyer account's balance being below this order's total (${order.amounts.display?.total}). Check the balance on the sandbox account, then approve again.` })
+        ]);
+
     host.replaceChildren(
       h('div', { class: 'page-head' }, [
         h('h1', { text: `Checkout · ${order.orderNumber}` }),
         h('p', { class: 'muted', text: `Expires ${new Date(order.expiresAt).toLocaleTimeString()} · total ${order.amounts.display?.total} · ${order.lines.length} line(s)` })
       ]),
+      paypalReturnNote,
       h('div', { class: 'checkout-grid' }, [
         h('div', { class: 'stack' }, [
           h('div', { class: 'table-wrap' }, [
