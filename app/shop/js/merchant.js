@@ -221,7 +221,7 @@ export async function renderMerchant() {
                   (() => {
                     const unit = order.payment?.settlement?.units?.find((u) => u.merchantId === state.user?.merchantId);
                     if (order.payment?.settlement?.mode !== 'split' || !unit) return null;
-                    return h('div', { class: 'note', text: `your share ${money(unit.amountMinor)} · commission ${money(unit.platformFeeMinor ?? 0)}` });
+                    return h('div', { class: 'note', text: `your share ${money(unit.amountMinor)} · commission ${money(unit.platformFeeMinor ?? 0)} · paid out ${money(Math.max(0, unit.amountMinor - (unit.platformFeeMinor ?? 0)))}` });
                   })()
                 ]),
                 h('td', {}, [h('span', { class: `badge badge--${statusTone(order.status)}`, text: humanStatus(order.status) })]),

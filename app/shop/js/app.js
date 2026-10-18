@@ -13,6 +13,7 @@ import { renderCheckout } from './checkout.js';
 import { renderOrderDetail, renderOrders } from './orders.js';
 import { renderMerchant } from './merchant.js';
 import { renderCatalogue } from './catalogue.js';
+import { renderAdmin } from './admin.js';
 
 /**
  * The catalogue rail is a companion to the shop view, not a view of its own — it shares the grid
@@ -24,13 +25,14 @@ const VIEW_PANES = {
   catalogue: ['catalogue'],
   orders: ['orders'],
   checkout: ['checkout'],
-  merchant: ['merchant']
+  merchant: ['merchant'],
+  admin: ['admin']
 };
 
 const setView = (view) => {
   const panes = VIEW_PANES[view] ?? [view];
   for (const node of $$('[data-view]')) node.hidden = !panes.includes(node.dataset.view);
-  const nav = { shop: 'shop', catalogue: 'catalogue', orders: 'orders', merchant: 'merchant', checkout: 'orders' }[view];
+  const nav = { shop: 'shop', catalogue: 'catalogue', orders: 'orders', merchant: 'merchant', checkout: 'orders', admin: 'admin' }[view];
   for (const link of $$('[data-nav]')) link.setAttribute('aria-current', link.dataset.nav === nav && (view === link.dataset.nav || (view === 'checkout' && link.dataset.nav === 'orders')) ? 'page' : 'false');
   $('#main').style.gridTemplateColumns = view === 'shop' ? '' : 'minmax(0, 1fr)';
 };
@@ -63,6 +65,11 @@ async function route() {
   if (path === '/merchant') {
     setView('merchant');
     await renderMerchant();
+    return;
+  }
+  if (path === '/admin') {
+    setView('admin');
+    await renderAdmin();
     return;
   }
   setView('shop');
@@ -215,6 +222,10 @@ function wire() {
   $('#chat-log').replaceChildren(skeleton(3));
   try {
     await loadSession();
+    // The platform console is only for the platform operator, so the link appears for that role
+    // and nobody else. The route itself is guarded by the API.
+    const adminNav = $('#admin-nav');
+    if (adminNav) adminNav.hidden = state.user?.role !== 'admin';
     await fetchCategories();
     const filter = $('#category-filter');
     filter.replaceChildren(h('option', { value: '', text: 'All categories' }), ...state.categories.map((category) => h('option', { value: category.slug, text: category.name ?? category.slug })));

@@ -176,6 +176,28 @@ export class OrderService {
     return { items: rows.slice(start, start + limit).map((o) => this.toDto(o)), total, page, limit, hasMore: start + limit < total };
   }
 
+  /** Every order on the platform, newest first — the admin's order queue. */
+  listForAdmin({ status, paymentStatus, q, page = 1, limit = 25 } = {}) {
+    let rows = this.orders.find({}, { sort: { createdAt: -1 } });
+    if (status) rows = rows.filter((o) => o.status === status);
+    if (paymentStatus) rows = rows.filter((o) => o.payment?.status === paymentStatus);
+    if (q) {
+      const needle = String(q).toLowerCase();
+      rows = rows.filter((o) => o.orderNumber.toLowerCase().includes(needle)
+        || (o.contact?.email ?? '').toLowerCase().includes(needle)
+        || (o.merchantIds ?? []).some((id) => String(id).toLowerCase().includes(needle)));
+    }
+    const total = rows.length;
+    const start = (Math.max(1, page) - 1) * limit;
+    return {
+      items: rows.slice(start, start + limit).map((o) => this.toDto(o)),
+      total,
+      page,
+      limit,
+      hasMore: start + limit < total
+    };
+  }
+
   timeline(orderId, event, actor = 'system', meta) {
     const order = this.find({ orderId });
     const entry = { at: new Date().toISOString(), event, actor, ...(meta ? { meta } : {}) };
@@ -321,6 +343,112 @@ export class OrderService {
       refundedMinor,
       paidOrders: rows.length,
       avgOrderValueMinor: rows.length ? Math.round(revenueMinor / rows.length) : 0
+    };
+  }
+
+  /**
+   * The platform view: every seller, the gross merchandise value, and ShopPilot's commission.
+   *
+   * The commission is the whole point of a multi-seller settlement — the money the platform keeps
+   * for routing a basket to several independent sellers — and until now it was computed in the
+   * settlement plan and then shown to nobody. This is what makes the model legible instead of
+   * merely implemented.
+   */
+  platformOverview() {
+    const paid = this.orders.find({
+      status: { $in: [ORDER_STATUS.PAID, ORDER_STATUS.PROCESSING, ORDER_STATUS.SHIPPED, ORDER_STATUS.DELIVERED] }
+    });
+    const refunded = this.orders.find({ status: ORDER_STATUS.REFUNDED });
+    const refundedMinor = refunded.reduce((sum, order) => sum + (order.amounts?.totalMinor ?? 0), 0);
+
+    const byMerchant = new Map();
+    const add = (merchantId, patch) => {
+      const current = byMerchant.get(merchantId) ?? {
+        merchantId,
+        orders: 0,
+        grossMinor: 0,
+        commissionMinor: 0,
+        refundedMinor: 0,
+        units: 0
+      };
+      for (const [key, value] of Object.entries(patch)) current[key] += value;
+      byMerchant.set(merchantId, current);
+    };
+
+    for (const order of paid) {
+      const units = order.payment?.settlement?.units ?? [];
+      const refunds = order.payment?.refunds ?? [];
+      for (const unit of units) {
+        if (!unit.merchantId) continue;
+        const refunded = refunds
+          .filter((r) => r.merchantId === unit.merchantId)
+          .reduce((sum, r) => sum + (r.amountMinor ?? 0), 0);
+        add(unit.merchantId, {
+          orders: 1,
+          units: 1,
+          grossMinor: unit.amountMinor,
+          commissionMinor: unit.platformFeeMinor ?? 0,
+          refundedMinor: refunded
+        });
+      }
+    }
+
+    const merchants = this.catalogue.merchants.find({}).map((merchant) => {
+      const row = byMerchant.get(merchant._id) ?? {
+        merchantId: merchant._id,
+        orders: 0,
+        grossMinor: 0,
+        commissionMinor: 0,
+        refundedMinor: 0,
+        units: 0
+      };
+      return {
+        merchantId: merchant._id,
+        name: merchant.name,
+        slug: merchant.slug,
+        orders: row.orders,
+        units: row.units,
+        grossMinor: row.grossMinor,
+        commissionMinor: row.commissionMinor,
+        refundedMinor: row.refundedMinor,
+        // PayPal's platform fee is deducted from the payee's unit: the seller is paid the unit
+        // amount less the commission. "Gross" is what the shopper was charged for that seller's
+        // goods; "net" is what actually reached the seller.
+        netMinor: row.grossMinor - row.commissionMinor - row.refundedMinor,
+        grossDisplay: formatMoney(row.grossMinor),
+        commissionDisplay: formatMoney(row.commissionMinor),
+        refundedDisplay: formatMoney(row.refundedMinor),
+        netDisplay: formatMoney(row.grossMinor - row.commissionMinor - row.refundedMinor)
+      };
+    }).sort((a, b) => b.grossMinor - a.grossMinor);
+
+    const grossMinor = merchants.reduce((sum, m) => sum + m.grossMinor, 0);
+    const commissionMinor = merchants.reduce((sum, m) => sum + m.commissionMinor, 0);
+    const netPaidMinor = merchants.reduce((sum, m) => sum + m.netMinor, 0);
+    const splitOrders = this.orders.find({ 'payment.settlement.mode': 'split' }).length;
+    const multiSellerOrders = this.orders.find({}).filter((o) => new Set(o.lines.map((l) => l.merchantId)).size > 1).length;
+
+    return {
+      currency: 'USD',
+      merchants,
+      sellerCount: merchants.length,
+      paidOrders: paid.length,
+      refundedOrders: refunded.length,
+      refundedMinor,
+      refundedDisplay: formatMoney(refundedMinor),
+      grossMinor,
+      grossDisplay: formatMoney(grossMinor),
+      commissionMinor,
+      commissionDisplay: formatMoney(commissionMinor),
+      netPaidMinor,
+      netPaidDisplay: formatMoney(netPaidMinor),
+      commissionRateBps: grossMinor ? Math.round((commissionMinor * 10_000) / grossMinor) : 0,
+      splitOrders,
+      multiSellerOrders,
+      revenueMinor: netPaidMinor,
+      revenueDisplay: formatMoney(netPaidMinor),
+      avgOrderValueMinor: paid.length ? Math.round(netPaidMinor / paid.length) : 0,
+      avgOrderValueDisplay: formatMoney(paid.length ? Math.round(netPaidMinor / paid.length) : 0)
     };
   }
 

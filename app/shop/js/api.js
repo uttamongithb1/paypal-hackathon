@@ -231,6 +231,13 @@ export const event = (name, props = {}, extra = {}) => ({
 
 /* ── Merchant ────────────────────────────────────────────────────────────── */
 export const merchantOverview = () => api('/merchant/overview');
+
+/** The platform console: every seller's settlement, ShopPilot's commission, and the order queue. */
+export const adminOverview = (params = {}) => {
+  const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''));
+  return api(`/admin/overview?${query.toString()}`);
+};
+export const adminReconcile = (orderId) => api(`/admin/orders/${orderId}/reconcile`, { method: 'POST', body: {} });
 export const merchantProducts = (params = {}) => {
   const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''));
   return api(`/merchant/products?${query.toString()}`);

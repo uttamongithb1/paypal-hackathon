@@ -556,6 +556,18 @@ export function registerRoutes(app, c) {
   }));
 
   // ── Admin ────────────────────────────────────────────────────────────────
+  /**
+   * The platform console's data: what every seller earned, what ShopPilot kept, and which
+   * orders still need a human. This is the view that makes the multi-seller model legible —
+   * without it the split settlement is an implementation detail nobody can see.
+   */
+  v1.get('/admin/overview', asyncHandler(async (req, res) => {
+    session.requireRole(req.auth, ['admin']);
+    const overview = order.platformOverview();
+    const all = order.listForAdmin({ status: req.query.status, q: req.query.q, limit: Math.min(100, Number(req.query.limit ?? 25)) });
+    res.json({ ...overview, orders: all });
+  }));
+
   v1.post('/admin/orders/:orderId/reconcile', asyncHandler(async (req, res) => {
     session.requireRole(req.auth, ['admin']);
     const result = await payment.reconcile({ orderId: req.params.orderId });
