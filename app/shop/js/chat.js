@@ -46,7 +46,12 @@ const requirementChipRow = (chips = []) =>
 function toolRow(body, { id, tool, label, status, durationMs, resultSummary }) {
   let trail = body.querySelector('.tool-trail');
   if (!trail) {
-    trail = h('div', { class: 'tool-trail' });
+    trail = h('div', { class: 'tool-trail' }, [
+      h('div', { class: 'tool-trail__hud' }, [
+        h('span', { class: 'pill pill--sm pill--brand', text: '⚡ Agent Spend-Rail Active' }),
+        h('span', { class: 'note mono', style: { fontSize: '11px', color: 'var(--color-text-subtle)' }, text: 'zero-trust · no payment tool' })
+      ])
+    ]);
     body.append(trail);
   }
   let row = trail.querySelector(`[data-tool-id="${id}"]`);

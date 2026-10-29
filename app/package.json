@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "ShopPilot AI reference implementation \u2014 conversational shopping with grounded recommendations and a verified PayPal checkout. Implements the contracts in ../prd.md, ../docs/api_spec.md, ../docs/ai_agent_spec.md and ../docs/payments_paypal.md.",
+  "description": "ShopPilot AI reference implementation — conversational shopping with grounded recommendations and a verified PayPal checkout. Implements the contracts in ../prd.md, ../docs/api_spec.md, ../docs/ai_agent_spec.md and ../docs/payments_paypal.md.",
   "engines": {
     "node": ">=20.11"
   },
@@ -30,6 +30,7 @@
     "test:ui": "node scripts/ui-smoke.mjs"
   },
   "dependencies": {
+    "ag-grid-community": "^36.2.0",
     "express": "^5.3.0",
     "zod": "^3.25.76"
   },

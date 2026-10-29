@@ -614,6 +614,32 @@ input:focus, select:focus, textarea:focus {
   background: var(--color-surface-2);
 }
 
+.composer__mic {
+  width: 36px; height: 36px; border-radius: var(--radius-full);
+  display: grid; place-items: center; color: var(--color-text-muted);
+  border: 1px solid var(--color-border); background: var(--color-surface-1);
+  cursor: pointer; transition: all 160ms ease; flex-shrink: 0;
+}
+.composer__mic:hover {
+  color: var(--color-accent); border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface-1));
+}
+.composer__mic--active {
+  color: #dc2626 !important; border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  animation: mic-pulse 1.2s infinite ease-in-out;
+}
+@keyframes mic-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+.tool-trail__hud {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding-bottom: 7px; margin-bottom: 4px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-agent) 22%, transparent);
+}
+
 /* ── 8. Cards & grids ──────────────────────────────────────────────────── */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 15px; }
 .card {

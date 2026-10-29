@@ -161,6 +161,50 @@ function wire() {
     toast('Conversation view cleared. Your shopping preferences are kept; tell the assistant if you want to change them.');
   });
   $('#auth-button').addEventListener('click', openAuth);
+  const micBtn = $('#chat-mic');
+  if (micBtn) {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRec) {
+      const rec = new SpeechRec();
+      rec.continuous = false;
+      rec.interimResults = true;
+      let listening = false;
+      micBtn.addEventListener('click', () => {
+        if (listening) {
+          rec.stop();
+          return;
+        }
+        try {
+          rec.start();
+          listening = true;
+          micBtn.classList.add('composer__mic--active');
+          micBtn.setAttribute('title', 'Listening… speak your shopping request');
+          toast('Listening… describe what you need', { tone: 'default' });
+        } catch (err) {
+          console.warn('Speech recognition start failed', err);
+        }
+      });
+      rec.onresult = (e) => {
+        const transcript = Array.from(e.results).map((r) => r[0].transcript).join('');
+        const input = $('#chat-input');
+        if (input) input.value = transcript;
+      };
+      rec.onend = () => {
+        listening = false;
+        micBtn.classList.remove('composer__mic--active');
+        micBtn.setAttribute('title', 'Voice input (speak to ShopPilot)');
+        const input = $('#chat-input');
+        if (input && input.value.trim()) input.focus();
+      };
+      rec.onerror = () => {
+        listening = false;
+        micBtn.classList.remove('composer__mic--active');
+        micBtn.setAttribute('title', 'Voice input (speak to ShopPilot)');
+      };
+    } else {
+      micBtn.hidden = true;
+    }
+  }
   $('#theme-toggle').addEventListener('click', () => {
     const root = document.documentElement;
     const next = root.dataset.theme === 'dark' ? 'light' : 'dark';

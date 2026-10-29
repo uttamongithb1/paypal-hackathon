@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
 import { parseSpecTotals, checkCount } from './test-count.mjs';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,8 +28,16 @@ function run(command, args) {
   });
 }
 
+function discover(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    return entry.isDirectory() ? discover(file) : entry.name.endsWith('.test.mjs') ? [file] : [];
+  });
+}
+
+const testFiles = discover(path.join(appRoot, 'tests')).sort();
 const tests = await run(process.execPath, [
-  '--test', '--test-reporter=spec', 'tests/unit', 'tests/integration', 'tests/evals'
+  '--test', '--test-reporter=spec', ...testFiles
 ]);
 if (tests.code !== 0) {
   console.error('\n✖ the test suite failed.');

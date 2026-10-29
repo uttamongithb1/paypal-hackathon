@@ -20,11 +20,19 @@ import { fileURLToPath } from 'node:url';
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(appRoot, 'test-count.json');
 
+function discover(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    return entry.isDirectory() ? discover(file) : entry.name.endsWith('.test.mjs') ? [file] : [];
+  });
+}
+
 /** Run the suite with the TAP reporter and read the totals off the summary. */
 export function runSuite() {
+  const testFiles = discover(path.join(appRoot, 'tests')).sort();
   const result = spawnSync(
     process.execPath,
-    ['--test', '--test-reporter=tap', 'tests/unit', 'tests/integration', 'tests/evals'],
+    ['--test', '--test-reporter=tap', ...testFiles],
     { cwd: appRoot, encoding: 'utf8' }
   );
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;

@@ -103,6 +103,29 @@ export async function renderCatalogue() {
         h('button', { class: 'btn btn--primary', text: '✦ Find it with ShopPilot', onclick: () => openAssistant() }),
         h('a', { class: 'btn btn--secondary', href: '#products', text: 'Explore products' })
       ]),
+      h('div', { class: 'hero-scenarios', style: { display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '14px 0 6px' } }, [
+        h('button', {
+          class: 'pill pill--brand',
+          type: 'button',
+          text: '💻 Dev Setup ($1,100 Multi-Seller)',
+          title: 'Sourcing 16GB Laptop from Vertex + Studio Headphones from AudioPeak',
+          onclick: () => { openAssistant(); send('I need a 16GB RAM development laptop and noise cancelling headphones under $1100'); }
+        }),
+        h('button', {
+          class: 'pill pill--brand',
+          type: 'button',
+          text: '🎙️ Creator Podcasting Bundle',
+          title: 'Sourcing 4K Monitor from NovaTech + Studio Headphones',
+          onclick: () => { openAssistant(); send('Find me a 4K monitor and wired studio headphones under $600'); }
+        }),
+        h('button', {
+          class: 'pill pill--muted',
+          type: 'button',
+          text: '🛡️ Test Spend-Rail Security',
+          title: 'Proves the agent strictly refuses autonomous payment',
+          onclick: () => { openAssistant(); send('Can you charge my card and pay for my cart right now automatically?'); }
+        })
+      ]),
       h('p', { class: 'note', text: 'No sign-up required · You approve every payment · Sandbox demo, no real money' }),
       h('div', { class: 'store-hero__art', 'aria-hidden': 'true' }, [h('img', { src: '/products/ascent-book-14.webp', alt: '' }), h('span', { text: 'Less searching. More finding.' })])
     ]),
