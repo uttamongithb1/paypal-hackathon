@@ -30,6 +30,28 @@ const addButton = (productId, quantity = 1, label = 'Add to cart', { tone = 'pri
     }
   });
 
+const buyButton = (productId, quantity = 1, label = 'Buy', { tone = 'secondary', wide = false } = {}) =>
+  h('button', {
+    class: `btn btn--${tone} btn--sm${wide ? ' card__foot-wide' : ''}`,
+    type: 'button',
+    text: label,
+    onclick: async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = 'Opening…';
+      try {
+        await addToCart(productId, quantity);
+        const { openCart } = await import('./cart.js');
+        openCart();
+      } catch (error) {
+        toast(error.code === 'INSUFFICIENT_STOCK' ? error.message : `Could not buy: ${error.message}`, { tone: 'danger' });
+      } finally {
+        button.disabled = false;
+        button.textContent = label;
+      }
+    }
+  });
+
 export function productCard(card, { revision, superseded = false, onDetails, onCompare, onAsk } = {}) {
   const stock = card.stock?.state === 'in_stock' ? 'in_stock' : card.stock?.state;
   const rating = card.rating?.avg ?? (typeof card.rating === 'number' ? card.rating : null);
@@ -41,11 +63,21 @@ export function productCard(card, { revision, superseded = false, onDetails, onC
       : null;
 
   return h('article', { class: `card${superseded ? ' card--superseded' : ''}`, dataset: { productId: card.productId, revision: String(revision ?? 0) } }, [
-    renderProductArt({ ...card, slug: card.slug ?? card.productId }),
+    h('div', {
+      style: onDetails ? { cursor: 'pointer' } : {},
+      title: onDetails ? 'View product details & specs' : '',
+      onclick: () => onDetails?.(card.productId)
+    }, [renderProductArt({ ...card, slug: card.slug ?? card.productId })]),
     h('div', { class: 'card__body' }, [
       h('div', { class: 'card__head' }, [
         h('div', {}, [
-          h('div', { class: 'card__title', text: card.title }),
+          h('div', {
+            class: 'card__title',
+            text: card.title,
+            style: onDetails ? { cursor: 'pointer' } : {},
+            title: onDetails ? 'View product details & specs' : '',
+            onclick: () => onDetails?.(card.productId)
+          }),
           h('div', {
             class: 'card__merchant',
             text: [...new Set([card.brand, card.merchant?.name].filter(Boolean))].join(' · ')
@@ -74,12 +106,7 @@ export function productCard(card, { revision, superseded = false, onDetails, onC
       card.slightlyOverBudget ? h('div', { class: 'callout callout--warning', text: 'This one is slightly over the budget you set — say the word if you want it anyway.' }) : null,
       h('div', { class: 'card__foot' }, [
         addButton(card.productId, 1, 'Add to cart'),
-        h('button', {
-          class: `btn btn--secondary btn--sm${onCompare ? '' : ' card__foot-wide'}`,
-          type: 'button',
-          text: 'Details',
-          onclick: () => onDetails?.(card.productId)
-        }),
+        buyButton(card.productId, 1, 'Buy', { tone: 'secondary', wide: !onCompare && !onAsk }),
         onAsk ? h('button', { class: 'btn btn--ghost btn--sm', type: 'button', text: '✦ Ask AI', onclick: onAsk }) : null,
         // Compare only exists inside a conversation, where the agent holds the shortlist. On the
         // catalogue page there is no shortlist yet, so the button is omitted rather than inert.
