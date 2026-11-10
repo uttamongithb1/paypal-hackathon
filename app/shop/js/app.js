@@ -102,10 +102,42 @@ function openAuth() {
   const email = h('input', { type: 'email', placeholder: 'you@example.com', id: 'auth-email', autocomplete: 'email', required: true });
   const password = h('input', { type: 'password', placeholder: 'Password', id: 'auth-password', autocomplete: 'current-password', required: true, minlength: '8' });
   const error = h('div', {});
+
+  const demoRoles = [
+    { label: '🛍️ Shopper', email: 'customer@demo.dev', pass: 'Customer@12345', hint: 'customer@demo.dev' },
+    { label: '🏪 Merchant', email: 'merchant@demo.dev', pass: 'Merchant@12345', hint: 'merchant@demo.dev' },
+    { label: '⚙️ Admin', email: 'admin@demo.dev', pass: 'Admin@12345', hint: 'admin@demo.dev' }
+  ];
+
+  const roleButtons = demoRoles.map(role =>
+    h('button', {
+      class: 'btn btn--secondary btn--sm',
+      type: 'button',
+      text: role.label,
+      title: `Click to fill credentials for ${role.hint}`,
+      style: { flex: '1 1 0', padding: '6px 8px', fontSize: '12px' },
+      onclick: () => {
+        email.value = role.email;
+        password.value = role.pass;
+        error.replaceChildren();
+        toast(`Filled credentials for ${role.label}`, { tone: 'default' });
+      }
+    })
+  );
+
+  const demoBox = h('div', { class: 'stack', style: { gap: '6px', background: 'var(--color-surface-2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--color-border)' } }, [
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      h('span', { class: 'note', style: { fontWeight: '600' }, text: 'Quick fill demo role:' }),
+      h('span', { class: 'note mono', style: { fontSize: '11px' }, text: '1-click credentials' })
+    ]),
+    h('div', { style: { display: 'flex', gap: '6px' } }, roleButtons)
+  ]);
+
   openModal({
     title: state.user && state.user.role !== 'guest' ? `Signed in as ${state.user.email}` : 'Sign in or create an account',
     body: h('form', { class: 'stack', id: 'auth-form', onsubmit: (event) => { event.preventDefault(); doAuth(false); } }, [
       error,
+      demoBox,
       h('div', {}, [h('label', { text: 'Email', for: 'auth-email' }), email]),
       h('div', {}, [h('label', { text: 'Password', for: 'auth-password' }), password]),
       h('p', { class: 'note', text: 'No account needed to browse, chat or check out. Sign in to access your saved account. Your current guest cart is preserved.' })
