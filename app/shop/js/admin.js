@@ -285,9 +285,9 @@ export async function renderAdmin() {
         hasAgGrid ? h('div', { class: 'row', style: { gap: '8px' } }, [
           h('input', {
             type: 'search',
-            class: 'input input--sm',
+            class: 'input input--sm mk-search-input',
             placeholder: 'Search orders, status…',
-            style: { width: '210px', borderRadius: '8px' },
+            style: { width: '230px' },
             oninput: (e) => ordersApi?.setGridOption('quickFilterText', e.target.value)
           }),
           h('button', {
@@ -315,9 +315,9 @@ export async function renderAdmin() {
         hasAgGrid ? h('div', { class: 'row', style: { gap: '8px' } }, [
           h('input', {
             type: 'search',
-            class: 'input input--sm',
+            class: 'input input--sm mk-search-input',
             placeholder: 'Filter sellers…',
-            style: { width: '180px', borderRadius: '8px' },
+            style: { width: '200px' },
             oninput: (e) => settlementApi?.setGridOption('quickFilterText', e.target.value)
           }),
           h('button', {

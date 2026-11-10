@@ -275,9 +275,9 @@ export async function renderMerchant() {
           h('div', { class: 'row', style: { gap: '10px' } }, [
             h('input', {
               id: 'mk-product-search',
-              class: 'input input--sm',
+              class: 'input input--sm mk-search-input',
               placeholder: 'Search products…',
-              style: { width: '220px', borderRadius: '8px' },
+              style: { width: '240px' },
               oninput: (e) => {
                 const query = e.target.value.trim().toLowerCase();
                 for (const row of host.querySelectorAll('#mk-products-table tbody tr')) {
