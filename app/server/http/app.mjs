@@ -69,10 +69,22 @@ export function createApp(container) {
       res.set('Cache-Control', env.isProd ? 'public, max-age=3600' : 'no-store');
       res.type('html').send(html);
     });
-    app.use(express.static(shopDir, { extensions: ['html'], maxAge: env.isProd ? '1h' : 0 }));
+    app.use(express.static(shopDir, {
+      extensions: ['html'],
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.js') || filePath.endsWith('.html') || filePath.endsWith('.css')) {
+          // Never freeze app code in browser cache during continuous updates: revalidate with ETag
+          res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+        } else {
+          // Media assets can be cached
+          res.setHeader('Cache-Control', env.isProd ? 'public, max-age=3600' : 'no-store');
+        }
+      }
+    }));
     app.get(/^\/(?!api\/).*/, (req, res, next) => {
       if (req.method !== 'GET') return next();
       if (req.path.includes('.')) return next();
+      res.set('Cache-Control', 'no-cache, must-revalidate');
       return res.sendFile(path.join(shopDir, 'index.html'));
     });
   } else {
