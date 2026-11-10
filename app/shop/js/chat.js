@@ -296,10 +296,8 @@ export function start() {
   })();
   setQuickReplies(
     requirement
-      ? ['show me more options', 'compare the top 2', 'what is in my cart']
-      : heroVisible
-        ? []
-        : ['laptop for full-stack development under $900', 'phone for photography under $800', 'headphones for flights under $350']
+      ? ['show me more options', 'compare top 2', 'what is in my cart']
+      : ['16GB laptop under $1000', 'Noise cancelling headphones', 'Podcasting creator bundle', 'What is in stock?']
   );
   return escapeHtml(greeting);
 }

@@ -217,16 +217,34 @@ export async function renderMerchant() {
             funnelRow('Checkout attempts', funnel.checkoutAttempts ?? 0, max),
             funnelRow('Completed purchases', funnel.purchases ?? 0, max)
           ]),
-          h('div', { class: 'mk-kpi-grid', style: { marginTop: '8px' } }, [
-            h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'View → Cart' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.viewToCartBps ?? 0) / 100).toFixed(1)}%` })]),
-            h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Cart → Checkout' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.cartToCheckoutBps ?? 0) / 100).toFixed(1)}%` })]),
-            h('div', { class: 'kpi' }, [h('div', { class: 'kpi__label', text: 'Checkout → Paid' }), h('div', { class: 'kpi__value', text: `${((analytics.rates?.checkoutToPaidBps ?? 0) / 100).toFixed(1)}%` })]),
-            h('div', { class: 'kpi' }, [
-              h('div', { class: 'kpi__label', text: 'AI Recommendations' }),
-              h('div', { class: 'kpi__value', text: String(analytics.counts?.recommendationShown ?? 0) }),
-              h('div', { class: 'note', text: `${analytics.counts?.chatMessages ?? 0} messages · ${analytics.counts?.agentTurns ?? 0} turns` })
+          h('div', { class: 'row', style: { gap: '16px', marginTop: '14px', paddingTop: '16px', borderTop: '1px solid rgba(145, 158, 171, 0.12)', flexWrap: 'wrap' } }, [
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+              h('span', { class: 'note', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }, text: 'View → Cart' }),
+              h('span', { class: 'mk-chip mk-chip--info', text: `${((analytics.rates?.viewToCartBps ?? 0) / 100).toFixed(1)}%` })
+            ]),
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+              h('span', { class: 'note', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }, text: 'Cart → Checkout' }),
+              h('span', { class: 'mk-chip mk-chip--warning', text: `${((analytics.rates?.cartToCheckoutBps ?? 0) / 100).toFixed(1)}%` })
+            ]),
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+              h('span', { class: 'note', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }, text: 'Checkout → Paid' }),
+              h('span', { class: 'mk-chip mk-chip--success', text: `${((analytics.rates?.checkoutToPaidBps ?? 0) / 100).toFixed(1)}%` })
+            ]),
+            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', marginLeft: 'auto' } }, [
+              h('span', { class: 'note', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }, text: 'AI Recommendations' }),
+              h('span', { class: 'mono', style: { fontWeight: '700', fontSize: '14px' }, text: `${analytics.counts?.recommendationShown ?? 0} shown` })
             ])
-          ]),
+          ])
+        ])
+      ]),
+
+      // Timeseries Activity Card
+      h('div', { class: 'mk-card' }, [
+        h('div', { class: 'mk-card__head' }, [
+          h('h2', { class: 'mk-card__title', text: 'Daily Activity Trends' }),
+          h('span', { class: 'note', text: 'Last 7 days volume' })
+        ]),
+        h('div', { class: 'mk-card__body' }, [
           h('div', { class: 'mk-kpi-grid' }, [
             sparkline(analytics.timeseries ?? [], 'views', 'Views per day'),
             sparkline(analytics.timeseries ?? [], 'cartAdds', 'Cart adds per day'),

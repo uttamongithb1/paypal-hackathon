@@ -1256,12 +1256,19 @@ body:has(#view-admin:not([hidden])) .layout {
 }
 
 #view-merchant.pane,
-#view-admin.pane {
+#view-admin.pane,
+#view-orders.pane {
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
   border-radius: 0 !important;
+}
+
+/* Hide floating shopping chat launcher when inside management dashboards */
+body:has(#view-merchant:not([hidden])) .assistant-launcher,
+body:has(#view-admin:not([hidden])) .assistant-launcher {
+  display: none !important;
 }
 
 .mk-dashboard {

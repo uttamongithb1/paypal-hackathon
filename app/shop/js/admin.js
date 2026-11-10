@@ -254,7 +254,7 @@ export async function renderAdmin() {
         h('span', { class: 'mk-chip mk-chip--success', text: 'Multi-Seller Orders v2' })
       ]),
       h('div', { class: 'mk-card__body stack' }, [
-        h('p', { class: 'note', text: 'Gross is what the shopper paid for goods across all sellers. Commission is what ShopPilot retains for routing a basket to multiple independent sellers — configured per seller unit by PLATFORM_FEE_BPS (500 bps = 5%) and deducted automatically, never surcharged to the shopper. Net to seller is what was disbursed directly to each merchant payee account.' }),
+        h('p', { class: 'note', style: { fontSize: '13.5px', lineHeight: '1.6' }, text: 'ShopPilot automatically routes and settles multi-merchant shopping baskets in a single buyer approval via PayPal Orders v2. The platform retains a standard 5.0% routing fee, and net disbursements are executed directly to each merchant payee account.' }),
         h('div', { class: 'row', style: { gap: '12px' } }, [
           h('button', {
             class: 'btn btn--primary btn--sm',

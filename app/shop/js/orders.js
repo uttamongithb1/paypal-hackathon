@@ -8,12 +8,10 @@ import { settlementPanel, settlementBadge, verificationMatrix } from './settleme
 import { amountBreakdown } from './cards.js';
 
 const statusLine = (order) =>
-  h('div', { class: 'row' }, [
-    h('span', { class: `badge badge--${statusTone(order.status)}`, text: humanStatus(order.status) }),
-    h('span', { class: 'badge', text: `payment: ${humanStatus(order.payment?.status ?? 'none')}` }),
-    order.payment?.lastAttemptNo ? h('span', { class: 'badge', text: `attempts: ${order.payment.lastAttemptNo}` }) : null,
-    settlementBadge(order),
-    order.payment?.paypalCaptureId ? h('span', { class: 'badge badge--success mono', text: order.payment.paypalCaptureId }) : null
+  h('div', { class: 'row', style: { gap: '6px' } }, [
+    h('span', { class: `mk-chip mk-chip--${statusTone(order.status)}`, text: humanStatus(order.status) }),
+    order.payment?.status === 'succeeded' ? h('span', { class: 'mk-chip mk-chip--success', text: 'Verified' }) : null,
+    settlementBadge(order)
   ]);
 
 export async function renderOrders() {
@@ -22,33 +20,57 @@ export async function renderOrders() {
   try {
     const { items } = await fetchOrders({ limit: 20 });
     if (!items.length) {
-      host.replaceChildren(h('div', { class: 'empty-state' }, [h('h3', { text: 'No orders yet' }), h('p', { class: 'note', text: 'Complete a checkout and it will appear here with its payment trail.' })]));
+      host.replaceChildren(h('div', { class: 'mk-card', style: { padding: '48px 24px', textAlign: 'center' } }, [
+        h('h3', { text: 'No orders yet' }),
+        h('p', { class: 'note', text: 'Browse the catalogue or ask our AI assistant to find products and place an order.' }),
+        h('div', { style: { marginTop: '16px' } }, [
+          h('a', { class: 'btn btn--primary btn--sm', href: '/', 'data-link': 'true', text: 'Start Shopping' })
+        ])
+      ]));
       return;
     }
     host.replaceChildren(
-      state.user?.role === 'guest' ? h('div', { class: 'callout' }, [h('strong', { text: 'Orders from this guest session' }), h('p', { class: 'note', text: 'Keep this browser session to return to your orders. An account is optional.' }), h('button', { class: 'btn btn--secondary btn--sm', text: 'Sign in / create account', onclick: () => document.getElementById('auth-button').click() })]) : h('span'),
-      h('div', { class: 'table-wrap' }, [
-        h('table', {}, [
-          h('thead', {}, [h('tr', {}, [h('th', { text: 'Order' }), h('th', { text: 'Placed' }), h('th', { class: 'num', text: 'Total' }), h('th', { text: 'Status' }), h('th', { text: '' })])]),
-          h('tbody', {}, items.map((order) =>
-            h('tr', {}, [
-              h('td', {}, [
-                h('div', { class: 'mono', text: order.orderNumber }),
-                h('div', { class: 'card__merchant', text: order.lines.map((line) => `${line.quantity}× ${line.title}`).join(', ') })
-              ]),
-              h('td', { text: new Date(order.createdAt).toLocaleString() }),
-              h('td', { class: 'num', text: order.amounts.display?.total ?? money(order.amounts.totalMinor) }),
-              h('td', {}, [statusLine(order)]),
-              h('td', {}, [
-                h('div', { class: 'row' }, [
-                  h('a', { class: 'btn btn--secondary btn--sm', href: `/orders/${order.id}`, 'data-link': 'true', text: 'Open' }),
-                  ['awaiting_payment', 'payment_failed'].includes(order.status)
-                    ? h('a', { class: 'btn btn--primary btn--sm', href: `/checkout/${order.id}`, 'data-link': 'true', text: 'Pay' })
-                    : null
+      state.user?.role === 'guest'
+        ? h('div', { class: 'mk-card', style: { padding: '16px 20px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', background: 'rgba(32, 101, 209, 0.05)', borderColor: 'rgba(32, 101, 209, 0.2)' } }, [
+            h('div', {}, [
+              h('strong', { style: { fontSize: '13.5px' }, text: 'Browsing as Guest Shopper' }),
+              h('p', { class: 'note', text: 'Orders placed in this session are saved locally. Sign in to link them permanently to your account.' })
+            ]),
+            h('button', { class: 'btn btn--secondary btn--sm', text: 'Sign in to sync orders', onclick: () => document.getElementById('auth-button').click() })
+          ])
+        : h('span'),
+      h('div', { class: 'mk-card' }, [
+        h('div', { class: 'mk-table-wrap' }, [
+          h('table', { class: 'mk-table' }, [
+            h('thead', {}, [
+              h('tr', {}, [
+                h('th', { text: 'Order' }),
+                h('th', { text: 'Placed' }),
+                h('th', { class: 'num', text: 'Total' }),
+                h('th', { text: 'Status' }),
+                h('th', { text: 'Actions' })
+              ])
+            ]),
+            h('tbody', {}, items.map((order) =>
+              h('tr', {}, [
+                h('td', {}, [
+                  h('div', { class: 'mono', style: { fontWeight: '700' }, text: order.orderNumber }),
+                  h('div', { class: 'note', style: { fontSize: '12px' }, text: order.lines.map((line) => `${line.quantity}× ${line.title}`).join(', ') })
+                ]),
+                h('td', { style: { fontSize: '12.5px', color: 'var(--color-text-muted)' }, text: new Date(order.createdAt).toLocaleDateString() }),
+                h('td', { class: 'num mono', style: { fontWeight: '700' }, text: order.amounts.display?.total ?? money(order.amounts.totalMinor) }),
+                h('td', {}, [statusLine(order)]),
+                h('td', {}, [
+                  h('div', { class: 'row', style: { gap: '6px' } }, [
+                    h('a', { class: 'btn btn--secondary btn--sm', href: `/orders/${order.id}`, 'data-link': 'true', text: 'View' }),
+                    ['awaiting_payment', 'payment_failed'].includes(order.status)
+                      ? h('a', { class: 'btn btn--primary btn--sm', href: `/checkout/${order.id}`, 'data-link': 'true', text: 'Pay now' })
+                      : null
+                  ])
                 ])
               ])
-            ])
-          ))
+            ))
+          ])
         ])
       ])
     );
