@@ -1247,16 +1247,49 @@ body.assistant-open .store-hero__art { display: none; }
    ══════════════════════════════════════════════════════════════════════════════ */
 
 /* Full-width container override for Merchant & Admin views */
+body.view-dashboard .layout,
 body:has(#view-merchant:not([hidden])) .layout,
 body:has(#view-admin:not([hidden])) .layout {
   max-width: 100% !important;
   width: 100% !important;
-  padding: 16px clamp(16px, 2.8vw, 48px) 64px !important;
+  padding: 0 !important;
   margin: 0 !important;
+  gap: 0 !important;
+  min-height: calc(100vh - 60px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--color-bg) !important;
+}
+
+body.view-dashboard .pagefoot,
+body:has(#view-merchant:not([hidden])) .pagefoot,
+body:has(#view-admin:not([hidden])) .pagefoot {
+  display: none !important;
 }
 
 #view-merchant.pane,
-#view-admin.pane,
+#view-admin.pane {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+#merchant-body,
+#admin-body {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: calc(100vh - 60px) !important;
+}
+
 #view-orders.pane {
   background: transparent !important;
   border: 0 !important;
@@ -1266,45 +1299,72 @@ body:has(#view-admin:not([hidden])) .layout {
 }
 
 /* Hide floating shopping chat launcher when inside management dashboards */
+body.view-dashboard .assistant-launcher,
 body:has(#view-merchant:not([hidden])) .assistant-launcher,
 body:has(#view-admin:not([hidden])) .assistant-launcher {
   display: none !important;
 }
 
 .mk-dashboard {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
-  margin: 6px 0 48px;
-  width: 100%;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  min-height: calc(100vh - 60px) !important;
+  width: 100% !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  flex: 1 1 auto !important;
 }
 
 @media (max-width: 1080px) {
   .mk-dashboard {
-    grid-template-columns: 1fr;
-    gap: 20px;
+    flex-direction: column !important;
   }
 }
 
-/* ── Sidebar ── */
+/* ── Full-Height Docked Sidebar (Material Kit React Reference) ── */
 .mk-sidebar {
-  background: var(--color-surface-1);
-  border: 1px solid rgba(145, 158, 171, 0.16);
-  border-radius: 20px;
-  padding: 24px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 16px 32px -4px rgba(145, 158, 171, 0.08);
-  position: sticky;
-  top: 84px;
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+  flex-shrink: 0 !important;
+  position: sticky !important;
+  top: 60px !important;
+  height: calc(100vh - 60px) !important;
+  max-height: calc(100vh - 60px) !important;
+  background: var(--color-surface-1) !important;
+  border-right: 1px dashed rgba(145, 158, 171, 0.24) !important;
+  border-left: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 24px 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  z-index: 20 !important;
+}
+
+@media (max-width: 1080px) {
+  .mk-sidebar {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    position: static !important;
+    border-right: 0 !important;
+    border-bottom: 1px dashed rgba(145, 158, 171, 0.24) !important;
+  }
 }
 
 .mk-sidebar__profile {
   background: rgba(145, 158, 171, 0.08);
   border: 1px solid rgba(145, 158, 171, 0.12);
-  border-radius: 14px;
+  border-radius: 0 !important;
   padding: 16px 18px;
   display: flex;
   align-items: center;
@@ -1439,7 +1499,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-status-card {
   background: rgba(145, 158, 171, 0.06);
   border: 1px solid rgba(145, 158, 171, 0.1);
-  border-radius: 10px;
+  border-radius: 0 !important;
   padding: 10px 12px;
   display: flex;
   align-items: center;
@@ -1452,7 +1512,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-pulse-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 50% !important;
   background: #22c55e;
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
   animation: pulse-ring 2s infinite ease-out;
@@ -1466,11 +1526,14 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 
 /* ── Main Workspace ── */
 .mk-main {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  min-width: 0;
-  width: 100%;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding: 32px clamp(20px, 3vw, 44px) 64px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 28px !important;
+  background: var(--color-bg) !important;
+  overflow-x: hidden !important;
 }
 
 .mk-header {
@@ -1529,7 +1592,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   background: rgba(145, 158, 171, 0.08);
   border: 1px solid rgba(145, 158, 171, 0.12);
   padding: 5px;
-  border-radius: 14px;
+  border-radius: 10px !important;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -1543,7 +1606,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   align-items: center;
   gap: 8px;
   padding: 9px 20px;
-  border-radius: 10px;
+  border-radius: 8px !important;
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
@@ -1566,7 +1629,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   font-weight: 750;
 }
 
-/* ── KPI Widgets (Ultra-Premium Material Kit React Pro) ── */
+/* ── KPI Widgets (Ultra-Premium Zero-Radius Architecture) ── */
 .mk-kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1577,7 +1640,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-kpi-card {
   background: var(--color-surface-1);
   border: 1px solid rgba(145, 158, 171, 0.16);
-  border-radius: 20px;
+  border-radius: 0 !important;
   padding: 24px 26px;
   box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 12px 24px -4px rgba(145, 158, 171, 0.08);
   display: flex;
@@ -1631,7 +1694,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-kpi__icon {
   width: 56px;
   height: 56px;
-  border-radius: 16px;
+  border-radius: 14px !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1672,11 +1735,11 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 [data-theme="dark"] .mk-kpi__icon--purple { background: rgba(138, 92, 246, 0.24); color: #c684ff; box-shadow: 0 8px 20px -4px rgba(138, 92, 246, 0.3); }
 [data-theme="dark"] .mk-kpi__icon--amber { background: rgba(255, 171, 0, 0.22); color: #ffd666; box-shadow: 0 8px 20px -4px rgba(255, 171, 0, 0.3); }
 
-/* ── Content Card ── */
+/* ── Content Card (Zero-Radius Sharp Enterprise Design) ── */
 .mk-card {
   background: var(--color-surface-1);
   border: 1px solid rgba(145, 158, 171, 0.16);
-  border-radius: 20px;
+  border-radius: 0 !important;
   box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 16px 32px -4px rgba(145, 158, 171, 0.08);
   overflow: hidden;
   display: flex;
@@ -1692,6 +1755,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   flex-wrap: wrap;
   gap: 16px;
   border-bottom: 1px solid rgba(145, 158, 171, 0.12);
+  border-radius: 0 !important;
 }
 
 .mk-card__title {
@@ -1713,17 +1777,18 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 
 .mk-card__body {
   padding: 24px 28px;
+  border-radius: 0 !important;
 }
 
 .mk-card__body--flush {
   padding: 0;
 }
 
-/* ── Minimalist Search Inputs ── */
+/* ── Minimalist Search Inputs (Rounded for tactile feedback) ── */
 .mk-search-input {
   background: var(--color-surface-1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='%23919eab' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E") no-repeat 12px center !important;
   padding-left: 36px !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   border: 1px solid rgba(145, 158, 171, 0.24) !important;
   font-size: 13px !important;
   transition: all 200ms ease;
@@ -1734,10 +1799,11 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   box-shadow: 0 0 0 3px rgba(32, 101, 209, 0.16) !important;
 }
 
-/* ── Minimalist Tables ── */
+/* ── Minimalist Tables (Zero-Radius) ── */
 .mk-table-wrap {
   width: 100%;
   overflow-x: auto;
+  border-radius: 0 !important;
 }
 
 .mk-table {
@@ -1755,6 +1821,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
   border-bottom: 1px solid rgba(145, 158, 171, 0.14);
+  border-radius: 0 !important;
 }
 
 .mk-table td {
@@ -1773,13 +1840,13 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   background: rgba(145, 158, 171, 0.04);
 }
 
-/* ── Minimalist Soft Chips with Micro-Indicator Dots ── */
+/* ── Minimalist Soft Chips with Micro-Indicator Dots (Kept Rounded) ── */
 .mk-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 11px;
-  border-radius: 8px;
+  border-radius: 6px !important;
   font-size: 11.5px;
   font-weight: 750;
   line-height: 1.2;
@@ -1789,7 +1856,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   content: "";
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 50% !important;
   background: currentColor;
   flex-shrink: 0;
 }
@@ -1845,9 +1912,10 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   box-shadow: 0 2px 6px rgba(0, 167, 111, 0.24);
 }
 
-/* ── AG Grid Premium Quartz Integration ── */
+/* ── AG Grid Premium Quartz Integration (Zero-Radius) ── */
 .ag-theme-quartz {
-  --ag-border-radius: 16px;
+  --ag-border-radius: 0px !important;
+  border-radius: 0 !important;
   --ag-header-background-color: rgba(145, 158, 171, 0.05);
   --ag-header-foreground-color: var(--color-text-muted);
   --ag-row-hover-color: rgba(145, 158, 171, 0.04);
@@ -1858,14 +1926,14 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   border: 0 !important;
 }
 
-/* ── Gate / Unauthenticated Card ── */
+/* ── Gate / Unauthenticated Card (Zero-Radius Sharp Architecture) ── */
 .mk-gate {
-  max-width: 620px;
-  margin: 36px auto;
-  padding: 48px 38px;
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 48px 40px;
   background: var(--color-surface-1);
   border: 1px solid rgba(145, 158, 171, 0.2);
-  border-radius: 24px;
+  border-radius: 0 !important;
   box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 24px 48px -4px rgba(145, 158, 171, 0.16);
   display: flex;
   flex-direction: column;
@@ -1877,7 +1945,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-gate__halo {
   width: 80px;
   height: 80px;
-  border-radius: 50%;
+  border-radius: 50% !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1924,7 +1992,7 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
 .mk-gate__feature {
   background: rgba(145, 158, 171, 0.06);
   border: 1px solid rgba(145, 158, 171, 0.1);
-  border-radius: 12px;
+  border-radius: 0 !important;
   padding: 13px 15px;
   text-align: left;
   font-size: 13px;
@@ -1939,9 +2007,32 @@ body:has(#view-admin:not([hidden])) .assistant-launcher {
   padding: 13px 32px;
   font-size: 15px;
   font-weight: 750;
-  border-radius: 12px;
+  border-radius: 8px !important;
   box-shadow: 0 6px 18px rgba(32, 101, 209, 0.28);
   cursor: pointer;
 }
+
+/* ── Strict User Rule Enforcement: Dashboard Cards Zero Radius, Buttons Rounded ── */
+.mk-dashboard .card,
+.mk-dashboard .callout,
+.mk-dashboard .table-wrap,
+.mk-dashboard .modal__panel {
+  border-radius: 0 !important;
+}
+
+/* Ensure ALL buttons inside dashboard keep their rounded corners */
+.mk-dashboard .btn,
+.mk-dashboard .btn--primary,
+.mk-dashboard .btn--secondary,
+.mk-dashboard .btn--ghost,
+.mk-dashboard .btn--danger,
+.mk-dashboard .btn--sm {
+  border-radius: 8px !important;
+}
+
+.mk-dashboard .btn--sm {
+  border-radius: 7px !important;
+}
+
 
 

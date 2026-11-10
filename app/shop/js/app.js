@@ -34,6 +34,7 @@ const setView = (view) => {
   const nav = { shop: 'shop', catalogue: 'catalogue', orders: 'orders', merchant: 'merchant', checkout: 'orders', admin: 'admin' }[view];
   for (const link of $$('[data-nav]')) link.setAttribute('aria-current', link.dataset.nav === nav && (view === link.dataset.nav || (view === 'checkout' && link.dataset.nav === 'orders')) ? 'page' : 'false');
   $('#main').style.gridTemplateColumns = view === 'shop' ? '' : 'minmax(0, 1fr)';
+  document.body.classList.toggle('view-dashboard', view === 'merchant' || view === 'admin');
 };
 
 export function updateNavForRole() {

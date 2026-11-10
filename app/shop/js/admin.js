@@ -78,14 +78,14 @@ export async function renderAdmin() {
   const settlementGridEl = h('div', {
     id: 'ag-settlement-grid',
     class: 'ag-theme-quartz',
-    style: { height: '260px', width: '100%', borderRadius: '12px', overflow: 'hidden' }
+    style: { height: '260px', width: '100%', borderRadius: '0px', overflow: 'hidden' }
   });
 
   // Orders grid container
   const ordersGridEl = h('div', {
     id: 'ag-orders-grid',
     class: 'ag-theme-quartz',
-    style: { height: '380px', width: '100%', borderRadius: '12px', overflow: 'hidden' }
+    style: { height: '380px', width: '100%', borderRadius: '0px', overflow: 'hidden' }
   });
 
   let settlementApi = null;

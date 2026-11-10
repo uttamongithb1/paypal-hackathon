@@ -371,10 +371,22 @@ export async function renderMerchant() {
           h('div', {}, [
             h('h2', { class: 'mk-card__title', text: `Orders & Fulfillment (${orders.total})` }),
             h('div', { class: 'mk-card__sub', text: 'Live orders, shipping tracking, and PayPal payment verifications' })
-          ])
+          ]),
+          h('input', {
+            id: 'mk-order-search',
+            class: 'input input--sm mk-search-input',
+            placeholder: 'Search orders or buyer…',
+            style: { width: '240px' },
+            oninput: (e) => {
+              const query = e.target.value.trim().toLowerCase();
+              for (const row of host.querySelectorAll('#mk-orders-table tbody tr')) {
+                row.hidden = Boolean(query) && !row.dataset.search.includes(query);
+              }
+            }
+          })
         ]),
         h('div', { class: 'mk-table-wrap' }, [
-          h('table', { class: 'mk-table' }, [
+          h('table', { class: 'mk-table', id: 'mk-orders-table' }, [
             h('thead', {}, [
               h('tr', {}, [
                 h('th', { text: 'Order' }),
@@ -386,7 +398,7 @@ export async function renderMerchant() {
               ])
             ]),
             h('tbody', {}, orders.items.map((order) =>
-              h('tr', {}, [
+              h('tr', { dataset: { search: `${order.orderNumber} ${order.contact?.email ?? ''}`.toLowerCase() } }, [
                 h('td', {}, [
                   h('div', { class: 'mono', style: { fontWeight: '700' }, text: order.orderNumber }),
                   h('div', { class: 'note', style: { fontSize: '11px' }, text: new Date(order.createdAt).toLocaleString() })
