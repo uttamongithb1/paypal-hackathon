@@ -276,18 +276,36 @@ export async function renderCheckout(orderId) {
     const { order } = await fetchOrder(orderId);
     track([event('checkout_viewed', { orderId: order.id, status: order.status })]);
 
-    // PayPal sends the buyer back here after they approve or cancel. If they came back but the
-    // order is still unpaid, PayPal did not complete the approval — and in the sandbox that is
-    // almost always the buyer account's balance being below this order's total. Say so plainly
-    // instead of leaving the shopper staring at a checkout page that looks stuck.
+    // PayPal sends the buyer back here after they approve or cancel. If they returned with an
+    // approved token, automatically invoke capture and server-side V1–V8 verification.
     const query = new URLSearchParams(location.search);
     const cameBack = query.get('from') === 'paypal';
     const cancelled = query.get('cancelled') === '1';
     const stillUnpaid = ['awaiting_payment', 'payment_failed'].includes(order.status);
+    const paypalToken = query.get('token') || order.payment?.paypalOrderId;
+
+    if (cameBack && !cancelled && stillUnpaid && paypalToken) {
+      history.replaceState({}, '', location.pathname);
+      host.replaceChildren(
+        h('div', { class: 'page-head' }, [
+          h('h1', { text: `Checkout · ${order.orderNumber}` }),
+          h('p', { class: 'muted', text: 'Confirming approval with PayPal…' })
+        ]),
+        h('div', { class: 'callout callout--warning' }, [
+          h('strong', { text: 'Verifying payment with PayPal…' }),
+          h('p', { class: 'note', text: 'You approved the transaction in PayPal. Running server-side capture verification (V1–V8).' })
+        ]),
+        skeleton(3)
+      );
+      toast('Payment approved in PayPal — verifying capture…', { tone: 'default' });
+      await capture(null, order, 'approve', paypalToken);
+      return;
+    }
+
     const paypalReturnNote = !cameBack || !stillUnpaid
       ? null
       : h('div', { class: 'callout callout--warning' }, [
-          h('strong', { text: cancelled ? 'You cancelled in PayPal' : 'PayPal came back without taking the payment' }),
+          h('strong', { text: cancelled ? 'You cancelled in PayPal' : 'PayPal returned without completing payment' }),
           h('div', { class: 'note', text: cancelled
             ? 'Nothing was charged. Your order is still reserved until it expires — approve it again whenever you like.'
             : `Nothing was charged. In the sandbox this is normally the buyer account's balance being below this order's total (${order.amounts.display?.total}). Check the balance on the sandbox account, then approve again.` })

@@ -34,9 +34,33 @@ export async function renderAdmin() {
     data = await adminOverview();
   } catch (err) {
     body.replaceChildren(
-      h('div', { class: 'callout callout--danger' }, [
-        h('strong', { text: 'The platform view is not available to this account.' }),
-        h('p', { class: 'note', text: err?.message ?? 'Sign in as an administrator to see it.' })
+      h('div', { class: 'empty-state empty-state--gate' }, [
+        h('h1', { text: 'Platform Console (AG Grid)' }),
+        h('p', { class: 'note', text: 'Sign in with the seeded administrator account to inspect marketplace GMV, 5% platform commissions, seller payouts, and interactive AG Grid tables with sorting, filtering, and CSV export.' }),
+        h('button', {
+          class: 'btn btn--primary',
+          type: 'button',
+          text: 'Sign in as the demo administrator',
+          onclick: async () => {
+            const { signIn } = await import('./api.js');
+            try {
+              await signIn('admin@demo.dev', 'Admin@12345');
+              toast('Signed in as demo administrator — loading AG Grid console');
+              renderAdmin();
+            } catch (error) {
+              toast(error.message, { tone: 'danger' });
+            }
+          }
+        }),
+        h('div', { class: 'gate-preview' }, [
+          h('p', { class: 'gate-preview__label', text: 'Behind this sign-in (AG Grid Sponsor Prize)' }),
+          h('ul', { class: 'gate-preview__list' }, [
+            h('li', { text: 'AG Grid Live: Multi-column sorting, quick search filtering, and row grouping' }),
+            h('li', { text: 'Platform Ledger: 5% platform fee deduction across multi-seller baskets' }),
+            h('li', { text: 'CSV Reconciliation: 1-click export of seller settlement records' }),
+            h('li', { text: 'Order Reconciliation: Manual recovery for captures pending confirmation' })
+          ])
+        ])
       ])
     );
     return;

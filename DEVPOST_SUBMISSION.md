@@ -2,6 +2,9 @@
 
 > **Target Competition:** [Build What’s Next with PayPal and AI](https://paypalaihackathon.devpost.com/)  
 > **Repository:** [https://github.com/uttamongithb1/paypal-hackathon](https://github.com/uttamongithb1/paypal-hackathon)  
+> **Live Deployment:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/)  
+> **Architecture & Safety Rails:** [https://paypal-hackathon.onrender.com/how-it-works](https://paypal-hackathon.onrender.com/how-it-works)  
+> **AG Grid Financial Console:** [https://paypal-hackathon.onrender.com/admin](https://paypal-hackathon.onrender.com/admin)  
 > **Track Nominations:**
 > 1. **Grand Prize** (1st / 2nd / 3rd)
 > 2. **Best Use of Agentic Commerce ($5,000)**
@@ -9,6 +12,21 @@
 > 4. **Best Demo Delivery ($5,000)**
 > 5. **Best Use of AG Grid ($5,000)**
 > 6. **Best Use of Render ($1,000 credits)**
+
+---
+
+## 🔑 Demo Access & Pre-Seeded Accounts for Judges
+
+| Role | Email | Password | What to Evaluate |
+|---|---|---|---|
+| **Shopper / Guest** | `customer@demo.dev` | `Customer@12345` | Conversational multi-vendor basket building, server-side quotes, PayPal checkout with V1–V8 verification matrix. *(Note: Guest checkout requires no sign-in).* |
+| **Merchant** | `merchant@demo.dev` | `Merchant@12345` | Merchant dashboard, product & price updates, monotone discovery funnel, multi-seller refund isolation. |
+| **Platform Administrator** | `admin@demo.dev` | `Admin@12345` | **AG Grid Financial Console**: Gross merchandise value (GMV), 5% platform fee deduction, per-seller net payouts, column filtering/sorting, and CSV reconciliation. |
+
+---
+
+## 🏷️ Built With (Devpost Form Tags)
+`PayPal Orders v2`, `PayPal Developer Platform`, `Groq`, `openai/gpt-oss-120b`, `AG Grid`, `Node.js`, `Express 5`, `JavaScript`, `Zod`, `Render`, `WCAG AA`, `HTML5`, `CSS3`
 
 ---
 
