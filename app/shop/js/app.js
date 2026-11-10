@@ -36,11 +36,31 @@ const setView = (view) => {
   $('#main').style.gridTemplateColumns = view === 'shop' ? '' : 'minmax(0, 1fr)';
 };
 
+export function updateNavForRole() {
+  const role = state.user?.role ?? 'guest';
+  const merchantNav = $('[data-nav="merchant"]');
+  const adminNav = $('#admin-nav');
+  const footAdminLink = $('#foot-admin-link');
+
+  if (merchantNav) {
+    // Hide merchant nav for standard shoppers/customers
+    merchantNav.hidden = role === 'customer';
+  }
+  if (adminNav) {
+    // Admin nav is STRICTLY hidden for merchants and shoppers! Only admins (and unauthenticated guests) can see it
+    adminNav.hidden = role === 'merchant' || role === 'customer';
+  }
+  if (footAdminLink) {
+    footAdminLink.hidden = role === 'merchant' || role === 'customer';
+  }
+}
+
 async function route() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
   const checkout = /^\/checkout\/([\w-]+)$/.exec(path);
   const orderDetail = /^\/orders\/([\w-]+)$/.exec(path);
   updateBadge();
+  updateNavForRole();
   if (checkout) {
     setView('checkout');
     await renderCheckout(checkout[1]);
@@ -63,11 +83,21 @@ async function route() {
     return;
   }
   if (path === '/merchant') {
+    if (state.user && state.user.role === 'customer') {
+      toast('Merchant account required. Shoppers cannot access the Merchant panel.', { tone: 'danger' });
+      navigate('/', { replace: true });
+      return;
+    }
     setView('merchant');
     await renderMerchant();
     return;
   }
   if (path === '/admin') {
+    if (state.user && state.user.role !== 'admin' && state.user.role !== 'guest') {
+      toast(`Access denied: Administrator privileges required. ${state.user.role} accounts cannot access the Platform Console.`, { tone: 'danger' });
+      navigate(state.user.role === 'merchant' ? '/merchant' : '/', { replace: true });
+      return;
+    }
     setView('admin');
     await renderAdmin();
     return;
@@ -93,7 +123,7 @@ function openAuth() {
       h('button', { class: 'btn btn--secondary', text: 'Keep shopping', onclick: closeModal }),
       h('button', { class: 'btn btn--primary', text: 'Sign out', onclick: async (event) => {
         event.currentTarget.disabled = true;
-        try { await signOut(); closeModal(); await restoreConversation(); await route(); toast('Signed out. You can keep shopping as a guest.'); }
+        try { await signOut(); closeModal(); updateNavForRole(); await restoreConversation(); await route(); toast('Signed out. You can keep shopping as a guest.'); }
         catch (error) { event.currentTarget.disabled = false; toast(error.message, { tone: 'danger' }); }
       } })
     ] });
@@ -165,6 +195,7 @@ function openAuth() {
         toast(`Signed in as ${result.user.email}${result.merged ? ' · cart merged' : ''}${result.claimedOrders ? ` · ${result.claimedOrders} order(s) claimed` : ''}`, { tone: 'success' });
       }
       closeModal();
+      updateNavForRole();
       await restoreConversation();
       await route();
     } catch (authError) {
@@ -256,6 +287,7 @@ function wire() {
   window.addEventListener('popstate', () => route());
   on('session', () => {
     updateBadge();
+    updateNavForRole();
     const button = $('#auth-button');
     button.textContent = state.user && state.user.role !== 'guest' ? state.user.email.split('@')[0] : 'Sign in';
   });
@@ -277,9 +309,7 @@ function wire() {
   $('#chat-log').replaceChildren(skeleton(3));
   try {
     await loadSession();
-    // The platform console features AG Grid enterprise tables (Sponsor Track); keep it visible so judges can discover and inspect it.
-    const adminNav = $('#admin-nav');
-    if (adminNav) adminNav.hidden = false;
+    updateNavForRole();
     await fetchCategories();
     try {
       const version = await api('/version');
