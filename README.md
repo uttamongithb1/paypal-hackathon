@@ -1,5 +1,7 @@
 # ShopPilot AI — conversational commerce with a PayPal checkout the agent cannot approve
 
+[![CI](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml)
+
 **PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI*
 
 **Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 135/135 Passing (0 Failed)

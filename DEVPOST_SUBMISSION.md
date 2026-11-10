@@ -1,5 +1,7 @@
 # ShopPilot AI — Devpost Hackathon Submission
 
+[![CI](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml)
+
 > **Target Competition:** [Build What’s Next with PayPal and AI](https://paypalaihackathon.devpost.com/)  
 > **Repository:** [https://github.com/uttamongithb1/paypal-hackathon](https://github.com/uttamongithb1/paypal-hackathon)  
 > **Live Deployment:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/)  
