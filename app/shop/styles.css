@@ -1234,3 +1234,599 @@ body.assistant-open .store-hero__art { display: none; }
   #view-shop .composer__form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   #view-shop .composer__form .btn { width: auto; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   13. Material Kit React (Minimal UI) Dashboard Theme
+   Inspired by minimal-ui-kit/material-kit-react:
+   - Modern 2-column sidebar + main dashboard layout
+   - High-contrast typography & soft pastel KPI stat widgets
+   - Elevated card surfaces with subtle borders and 16px radius
+   - Minimalist data tables with soft-pill status badges
+   - Interactive section tabs and enterprise AG Grid integration
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.mk-dashboard {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  margin: 12px 0 48px;
+  width: 100%;
+}
+
+@media (max-width: 980px) {
+  .mk-dashboard {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+/* ── Sidebar ── */
+.mk-sidebar {
+  background: var(--color-surface-1);
+  border: 1px solid rgba(145, 158, 171, 0.16);
+  border-radius: 16px;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 12px 24px -4px rgba(145, 158, 171, 0.1);
+  position: sticky;
+  top: 84px;
+}
+
+.mk-sidebar__profile {
+  background: rgba(145, 158, 171, 0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mk-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.mk-avatar--merchant {
+  background: linear-gradient(135deg, #00a76f 0%, #007867 100%);
+  color: #ffffff;
+}
+
+.mk-avatar--admin {
+  background: linear-gradient(135deg, #2065d1 0%, #103996 100%);
+  color: #ffffff;
+}
+
+.mk-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mk-profile-info__name {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+
+.mk-profile-info__role {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mk-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mk-nav__heading {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  padding: 6px 12px 4px;
+}
+
+.mk-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 180ms ease;
+  user-select: none;
+}
+
+.mk-nav__item:hover {
+  background: rgba(145, 158, 171, 0.08);
+  color: var(--color-text);
+}
+
+.mk-nav__item.is-active {
+  background: rgba(32, 101, 209, 0.08);
+  color: #2065d1;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .mk-nav__item.is-active {
+  background: rgba(32, 101, 209, 0.16);
+  color: #68b0ff;
+}
+
+.mk-nav__icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mk-nav__badge {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.mk-sidebar__foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(145, 158, 171, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mk-status-card {
+  background: rgba(145, 158, 171, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.mk-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+/* ── Main Panel ── */
+.mk-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.mk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.mk-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.mk-breadcrumb__sep {
+  opacity: 0.5;
+}
+
+.mk-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mk-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.mk-subtitle {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.mk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Horizontal Navigation Tabs ── */
+.mk-tabs {
+  display: flex;
+  gap: 6px;
+  background: rgba(145, 158, 171, 0.08);
+  padding: 5px;
+  border-radius: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mk-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.mk-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  transition: all 160ms ease;
+}
+
+.mk-tab:hover {
+  color: var(--color-text);
+  background: rgba(145, 158, 171, 0.06);
+}
+
+.mk-tab.is-active {
+  background: var(--color-surface-1);
+  color: var(--color-text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+/* ── KPI Widgets (Material Kit React Style) ── */
+.mk-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.mk-kpi-card {
+  background: var(--color-surface-1);
+  border: 1px solid rgba(145, 158, 171, 0.16);
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 12px 24px -4px rgba(145, 158, 171, 0.1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.mk-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.25), 0 16px 32px -4px rgba(145, 158, 171, 0.14);
+}
+
+.mk-kpi__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mk-kpi__label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.mk-kpi__value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  margin: 6px 0 4px;
+  line-height: 1.1;
+}
+
+.mk-kpi__meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mk-kpi__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mk-kpi__icon--green {
+  background: rgba(34, 197, 94, 0.14);
+  color: #118d57;
+}
+
+.mk-kpi__icon--blue {
+  background: rgba(32, 101, 209, 0.14);
+  color: #1877f2;
+}
+
+.mk-kpi__icon--purple {
+  background: rgba(138, 92, 246, 0.14);
+  color: #7928ca;
+}
+
+.mk-kpi__icon--amber {
+  background: rgba(255, 171, 0, 0.14);
+  color: #b76e00;
+}
+
+[data-theme="dark"] .mk-kpi__icon--green { background: rgba(34, 197, 94, 0.22); color: #77ed8b; }
+[data-theme="dark"] .mk-kpi__icon--blue { background: rgba(32, 101, 209, 0.24); color: #68b0ff; }
+[data-theme="dark"] .mk-kpi__icon--purple { background: rgba(138, 92, 246, 0.24); color: #c684ff; }
+[data-theme="dark"] .mk-kpi__icon--amber { background: rgba(255, 171, 0, 0.22); color: #ffd666; }
+
+/* ── Content Card ── */
+.mk-card {
+  background: var(--color-surface-1);
+  border: 1px solid rgba(145, 158, 171, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 12px 24px -4px rgba(145, 158, 171, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mk-card__head {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  border-bottom: 1px solid rgba(145, 158, 171, 0.12);
+}
+
+.mk-card__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mk-card__sub {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+}
+
+.mk-card__body {
+  padding: 22px 24px;
+}
+
+.mk-card__body--flush {
+  padding: 0;
+}
+
+/* ── Minimalist Tables ── */
+.mk-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.mk-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.mk-table th {
+  background: rgba(145, 158, 171, 0.08);
+  padding: 14px 20px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid rgba(145, 158, 171, 0.14);
+}
+
+.mk-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(145, 158, 171, 0.1);
+  font-size: 13.5px;
+  vertical-align: middle;
+  color: var(--color-text);
+}
+
+.mk-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.mk-table tr:hover td {
+  background: rgba(145, 158, 171, 0.04);
+}
+
+/* ── Minimalist Soft Chips ── */
+.mk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.mk-chip--success {
+  background: rgba(34, 197, 94, 0.16);
+  color: #118d57;
+}
+
+.mk-chip--warning {
+  background: rgba(255, 171, 0, 0.16);
+  color: #b76e00;
+}
+
+.mk-chip--danger {
+  background: rgba(255, 86, 48, 0.16);
+  color: #b71d18;
+}
+
+.mk-chip--info {
+  background: rgba(0, 184, 217, 0.16);
+  color: #006c9c;
+}
+
+.mk-chip--muted {
+  background: rgba(145, 158, 171, 0.16);
+  color: #637381;
+}
+
+[data-theme="dark"] .mk-chip--success { background: rgba(34, 197, 94, 0.24); color: #77ed8b; }
+[data-theme="dark"] .mk-chip--warning { background: rgba(255, 171, 0, 0.24); color: #ffd666; }
+[data-theme="dark"] .mk-chip--danger { background: rgba(255, 86, 48, 0.24); color: #ffac82; }
+[data-theme="dark"] .mk-chip--info { background: rgba(0, 184, 217, 0.24); color: #4de2ff; }
+[data-theme="dark"] .mk-chip--muted { background: rgba(145, 158, 171, 0.24); color: #919eab; }
+
+/* ── Gate / Unauthenticated Card ── */
+.mk-gate {
+  max-width: 620px;
+  margin: 36px auto;
+  padding: 44px 36px;
+  background: var(--color-surface-1);
+  border: 1px solid rgba(145, 158, 171, 0.2);
+  border-radius: 20px;
+  box-shadow: 0 0 2px 0 rgba(145, 158, 171, 0.2), 0 20px 40px -4px rgba(145, 158, 171, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 20px;
+}
+
+.mk-gate__halo {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  box-shadow: 0 0 0 8px rgba(32, 101, 209, 0.08);
+}
+
+.mk-gate__halo--merchant {
+  background: rgba(0, 167, 111, 0.14);
+  color: #00a76f;
+  box-shadow: 0 0 0 8px rgba(0, 167, 111, 0.08);
+}
+
+.mk-gate__halo--admin {
+  background: rgba(32, 101, 209, 0.14);
+  color: #2065d1;
+  box-shadow: 0 0 0 8px rgba(32, 101, 209, 0.08);
+}
+
+.mk-gate__title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.mk-gate__desc {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  max-width: 480px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.mk-gate__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.mk-gate__feature {
+  background: rgba(145, 158, 171, 0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mk-gate__btn {
+  padding: 12px 28px;
+  font-size: 14.5px;
+  font-weight: 700;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(32, 101, 209, 0.24);
+  cursor: pointer;
+}
+
