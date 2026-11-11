@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml)
 
-**PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI*
+**PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI · Best Use of AG Grid ($5,000)*
 
 **Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 135/135 Passing (0 Failed)
 
@@ -44,7 +44,9 @@ duplicate webhooks — entirely in-process. A real PayPal sandbox is one env var
 |---|---|---|---|
 | Shopper | `customer@demo.dev` | `Customer@12345` | Orders, receipts, the payment audit trail |
 | Merchant | `merchant@demo.dev` | `Merchant@12345` | Catalogue, orders, payment attempts, analytics funnel |
-| Admin | `admin@demo.dev` | `Admin@12345` | Reconciliation endpoint |
+| Admin | `admin@demo.dev` | `Admin@12345` | **AG Grid Financial Console** (`/admin`): GMV, seller net payouts, platform fees, column filtering/sorting |
+
+> **Testing PayPal Checkout Approval:** When approving in the sandbox popup modal, use any Personal Sandbox Buyer account (or your developer account from [developer.paypal.com](https://developer.paypal.com/) → Testing Tools → Sandbox Accounts).
 
 ---
 
@@ -77,6 +79,10 @@ duplicate webhooks — entirely in-process. A real PayPal sandbox is one env var
    rating, live stock, compare-at price, category filter and search. It renders the *same* card
    component the agent uses in conversation, fed from the same `/products` endpoint, so the price
    and stock in a chat reply can never disagree with the shelf.
+
+8. **Platform Operator Console** — `/admin` embeds **AG Grid Community v32** for high-density financial
+   reconciliation: inspect gross merchandise value (GMV), 5% platform fees, per-seller net payouts,
+   custom column filtering, and single-click CSV export.
 
 ---
 

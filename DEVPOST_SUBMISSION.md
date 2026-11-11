@@ -25,6 +25,11 @@
 | **Merchant** | `merchant@demo.dev` | `Merchant@12345` | Merchant dashboard, product & price updates, monotone discovery funnel, multi-seller refund isolation. |
 | **Platform Administrator** | `admin@demo.dev` | `Admin@12345` | **AG Grid Financial Console**: Gross merchandise value (GMV), 5% platform fee deduction, per-seller net payouts, column filtering/sorting, and CSV reconciliation. |
 
+> **Testing PayPal Checkout Approval:**  
+> When approving an order in the PayPal Sandbox popup modal, you can log in with any personal PayPal Sandbox account (or your developer sandbox buyer account from [developer.paypal.com](https://developer.paypal.com/) → Testing Tools → Sandbox Accounts).
+> 
+> *Note on Render Cold Start:* The live demo is hosted on Render's free tier. If the instance has been idle, the first request may take ~30–45 seconds to wake up from sleep. Subsequent requests respond in under 100ms.
+
 ---
 
 ## 🏷️ Built With (Devpost Form Tags)
@@ -110,6 +115,15 @@ ShopPilot AI is constructed with a clean separation of concerns across 4 layers:
 * **10 Immutable Money Invariants (The Invariant Report):** A continuous ledger audit verifies stock is never negative, cart subtotals always reflect live DB prices, payment attempts are strictly sequential, and no order is marked paid without capture verification.
 * **WCAG AA 100% Accessible:** 0 contrast violations across 8 page-and-theme combinations measured with axe-core.
 * **Real Sandbox Captures:** Not a mockup or client-side simulation. Real PayPal Orders v2 captures processed and verified with PayPal's live sandbox servers.
+
+---
+
+## 📚 What We Learned
+
+1. **Decoupling Agentic Intelligence from Payment Execution:** Giving language models access to payment-executing tools is fundamentally unsafe. Prompt injection attacks can coerce tool arguments or bypass business rules. The correct paradigm for agentic commerce is strict separation: the AI model excels at natural language understanding, catalogue exploration, and product reasoning, but checkout must transition to a deterministic server quote (`quoteHash`) and require explicit human authentication and approval inside PayPal's secure boundary.
+2. **Deterministic Apportionment in Multi-Seller Commerce:** Financial calculations cannot tolerate JavaScript floating-point arithmetic. Dividing shared shipping fees and taxes across multiple sellers creates fractional cents. By adopting the **Hare-Niemeyer Largest-Remainder algorithm**, we guaranteed that the sum of seller-allocated units matches the gross order total to the exact cent, eliminating `AMOUNT_MISMATCH` rejections from PayPal.
+3. **Graceful Capability Degradation (Honest Fallback):** Real-world merchant accounts on PayPal have varying capability levels (standard business accounts vs. Complete Payments Platform with Marketplace permissions). Implementing a dynamic capability detection ladder (split with platform fees → split without platform fees → single platform unit) with transparent customer-facing audit logs ensures transactions never fail unexpectedly.
+4. **Data Grid Virtualization for High-Density Financials:** Integrating **AG Grid Community** into the platform operator console highlighted the importance of high-performance client-side data grids. Administrators can sort, filter, and inspect complex multi-seller disbursements and commission splits with sub-millisecond responsiveness.
 
 ---
 
