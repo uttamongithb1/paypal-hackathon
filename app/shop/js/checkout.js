@@ -110,7 +110,7 @@ function payPanel(order) {
         h('strong', { text: `Last attempt failed${order.payment?.lastErrorCode ? ` (${order.payment.lastErrorCode})` : ''}` }),
         h('p', { class: 'note', text: 'No money moved. You can retry with another payment method — the order and its stock hold are still yours.' })
       ]),
-      h('button', { class: 'btn btn--primary btn--block', type: 'button', text: 'Retry payment', onclick: (event) => retry(event.currentTarget) })
+      h('button', { class: 'btn btn--primary btn--block', type: 'button', text: 'Retry payment', dataset: { orderId: order.id }, onclick: (event) => retry(event.currentTarget, order.id) })
     );
     return panel;
   }
@@ -154,10 +154,8 @@ function paypalControls(order) {
     host.replaceChildren(h('div', { class: 'callout callout--warning', text: 'PAYPAL_MODE=sandbox but no PAYPAL_CLIENT_ID is configured for the browser SDK. Add it to .env or switch to simulator mode.' }));
     return host;
   }
-  const script = document.createElement('script');
-  script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture&components=buttons`;
-  script.onload = () => {
-    if (!window.paypal) {
+  const mountButtons = () => {
+    if (!window.paypal?.Buttons) {
       host.replaceChildren(h('div', { class: 'callout callout--danger', text: 'PayPal SDK loaded but did not initialise.' }));
       return;
     }
@@ -182,6 +180,15 @@ function paypalControls(order) {
       }
     }).render(host);
   };
+
+  if (window.paypal?.Buttons) {
+    mountButtons();
+    return host;
+  }
+
+  const script = document.createElement('script');
+  script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture&components=buttons`;
+  script.onload = mountButtons;
   script.onerror = () => host.replaceChildren(h('div', { class: 'callout callout--danger', text: 'Could not load the PayPal SDK (offline?). The order is safe — retry when back online.' }));
   document.head.append(script);
   return host;
@@ -225,11 +232,12 @@ async function cancel(button, order) {
   }
 }
 
-async function retry(button) {
+async function retry(button, orderId) {
+  const id = orderId ?? button.dataset.orderId;
   button.disabled = true;
   button.textContent = 'Creating a new attempt…';
   try {
-    const result = await retryPayment(button.dataset.orderId);
+    const result = await retryPayment(id);
     toast(`Attempt #${result.payment?.attemptNo} ready — approve it below`, { tone: 'success' });
     location.reload();
   } catch (error) {
