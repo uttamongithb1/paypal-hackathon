@@ -1267,8 +1267,18 @@ body:has(#view-admin:not([hidden])) .pagefoot {
   display: none !important;
 }
 
-#view-merchant.pane,
-#view-admin.pane {
+#view-merchant[hidden],
+#view-admin[hidden],
+#view-orders[hidden],
+#view-checkout[hidden],
+#view-catalogue[hidden],
+.pane[hidden],
+section[hidden] {
+  display: none !important;
+}
+
+#view-merchant.pane:not([hidden]),
+#view-admin.pane:not([hidden]) {
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -1290,7 +1300,7 @@ body:has(#view-admin:not([hidden])) .pagefoot {
   min-height: calc(100vh - 60px) !important;
 }
 
-#view-orders.pane {
+#view-orders.pane:not([hidden]) {
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
