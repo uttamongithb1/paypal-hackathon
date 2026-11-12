@@ -520,6 +520,11 @@ export class PaypalSandbox {
 
   async verifyWebhook({ headers, body }) {
     if (!env.paypalWebhookId) return { verified: false, reason: 'no_webhook_id' };
+    // A request without the five PayPal signature headers is not a genuine signed webhook. Bail out
+    // as unverified instead of sending undefined fields to PayPal, which would 400 and throw — the
+    // webhook endpoint must answer 200 on a bad request, never 500 (PayPal would retry forever).
+    const required = ['paypal-auth-algo', 'paypal-cert-url', 'paypal-transmission-id', 'paypal-transmission-sig', 'paypal-transmission-time'];
+    if (required.some((name) => !headers?.[name])) return { verified: false, reason: 'missing_signature_headers' };
     const data = await this.request('/v1/notifications/verify-webhook-signature', {
       method: 'POST',
       body: {

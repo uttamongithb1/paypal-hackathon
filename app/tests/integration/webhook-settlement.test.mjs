@@ -40,6 +40,9 @@ async function fakePayPal() {
       return json(res, 200, { access_token: 'fake-token', expires_in: 3600, token_type: 'Bearer' });
     }
     if (url.pathname === '/v1/notifications/verify-webhook-signature') {
+      // Real PayPal 400s when a signature field is missing. Mimic that so the missing-header
+      // regression genuinely reproduces the old 500 (the gateway must short-circuit before this).
+      if (!body.transmission_sig) return json(res, 400, { name: 'INVALID_REQUEST', message: 'Missing required signature field.' });
       const ok = body.webhook_id === WEBHOOK_ID && body.transmission_sig === VALID_SIG;
       return json(res, 200, { verification_status: ok ? 'SUCCESS' : 'FAILURE' });
     }
@@ -360,4 +363,18 @@ test('late approval and pending webhooks never downgrade a paid order', async ()
   assert.equal(fresh.body.order.status, 'paid', 'a late approval/pending must not downgrade a paid order');
   assert.equal(fresh.body.order.payment.status, 'captured');
   assert.equal(fresh.body.order.payment.amountVerified, true);
+});
+
+test('a webhook with no signature headers is answered 200 (unverified), never 500', async () => {
+  // Regression: missing paypal-* signature headers used to reach PayPal verification with undefined
+  // fields, which 400s and threw out of the endpoint as 500 — PayPal would then retry forever. The
+  // gateway now short-circuits missing headers and ingestWebhook catches any verification error.
+  const res = await fetch(`${app.base}/api/v1/webhooks/paypal`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'evt-no-sig-headers', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource_type: 'capture', resource: { id: 'CAP-NOSIG' } })
+  });
+  assert.equal(res.status, 200, 'a bad webhook request must be answered 200, not 500');
+  const body = await res.json();
+  assert.equal(body.received, true);
 });

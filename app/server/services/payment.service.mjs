@@ -606,7 +606,17 @@ export class PaymentService {
 
   // ── Webhooks ─────────────────────────────────────────────────────────────
   async ingestWebhook({ headers, body }) {
-    const { verified } = await this.gateway.verifyWebhook({ headers, body });
+    // Verification must never throw out of the webhook endpoint: a missing header, a network blip,
+    // or a PayPal 4xx/5xx would otherwise surface as 500 and make PayPal retry the event forever.
+    // Treat any verification failure as unverified — the event is recorded as signature_invalid and
+    // we still answer 200 so PayPal stops retrying.
+    let verified = false;
+    try {
+      ({ verified } = await this.gateway.verifyWebhook({ headers, body }));
+    } catch (err) {
+      logger.warn('webhook.verify.error', { error: err.message, issue: err.issue });
+      verified = false;
+    }
     const eventId = body?.id ?? `unknown-${objectId()}`;
     const existing = this.webhooks.findOne({ eventId });
     // An applied/ignored event is never processed twice. An event whose previous pass errored may
