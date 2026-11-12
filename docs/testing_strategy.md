@@ -105,7 +105,7 @@ UI/E2E
 Sandbox with test buyers | nightly E2E only, using sandbox credentials and low-value ($1) test products |
 Sandbox "negative testing" | enable in the app settings to force `INSTRUMENT_DECLINED`/`INSUFFICIENT_FUNDS` responses deterministically |
 Webhook delivery | ngrok tunnel + PayPal's webhook simulator for manual verification; recorded payloads become fixtures |
-Assertion helper | `expectPayPalPayload(order)` verifies 2-decimal strings, breakdown sum, `custom_id`, quantities as strings |
+Assertion helper | `expectPayPalPayload(order)` verifies 2-decimal strings, breakdown sum, `custom_id` (= orderNumber), `invoice_id` uniqueness (orderNumber + order `_id`, so a reseeded counter cannot reuse a captured invoice), quantities as strings |
 Secret hygiene | sandbox creds in CI secrets; tests assert the flag `PAYPAL_ENV !== 'live'` before any real network call |
 
 Idempotency testing: run the same logical operation twice and assert payload equality **including** the `PayPal-Request-Id` header — this is what proves we never double-charge.

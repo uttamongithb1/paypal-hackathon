@@ -34,12 +34,23 @@ export function buildPurchaseUnits(order, plan) {
   const currency = order.amounts.currency;
   const payout = (minor) => ({ currency_code: currency, value: toPayPalAmount(minor) });
 
+  // PayPal rejects a capture with DUPLICATE_INVOICE_ID when the account has already captured a
+  // transaction with the same invoice_id. The sequential orderNumber alone is NOT safe: on an
+  // ephemeral disk (Render free tier) every redeploy reseeds and the counter restarts, so a new
+  // order can reuse a number that a previous deployment already captured in the same PayPal
+  // account. Appending the order's internal _id (a random objectId, unique across deployments)
+  // makes the invoice_id globally unique while custom_id stays the human orderNumber for webhook
+  // and verification matching. Retries of the SAME order keep the same invoice_id on purpose: if a
+  // prior attempt really captured, the duplicate guard is the correct anti-double-charge behaviour
+  // and reconciliation recovers the paid state.
+  const uniqueSuffix = order._id ? `-${order._id}` : '';
+
   return plan.units.map((unit) => {
     const purchaseUnit = {
       // reference_id is required by PayPal whenever an order has more than one purchase unit.
       ...(unit.referenceId ? { reference_id: unit.referenceId } : {}),
       custom_id: plan.mode === 'split' ? `${order.orderNumber}:${unit.referenceId}` : order.orderNumber,
-      invoice_id: plan.mode === 'split' ? `${order.orderNumber}-${unit.referenceId}` : order.orderNumber,
+      invoice_id: `${plan.mode === 'split' ? `${order.orderNumber}-${unit.referenceId}` : order.orderNumber}${uniqueSuffix}`.slice(0, 127),
       description: (plan.mode === 'split' ? `${order.orderNumber} — ${unit.merchantName}` : `ShopPilot order ${order.orderNumber}`).slice(0, 127),
       amount: {
         ...payout(unit.amountMinor),
@@ -143,7 +154,11 @@ export function isCapabilityRejection(error) {
   ].filter(Boolean).join(' ').toLowerCase();
   return [
     'platform_fees', 'platform fee', 'payment_instruction', 'not supported', 'not enabled',
-    'msp_not_supported', 'partner_fee', 'not eligible', 'capability'
+    'msp_not_supported', 'partner_fee', 'not eligible', 'capability',
+    // A payee account that PayPal will not pay (invalid, locked, or closed) is a settlement-capability
+    // problem, not a shopper funding problem: fall back to a single unit paid to the API caller rather
+    // than failing the purchase. These issues carry none of the needles above, so list them explicitly.
+    'payee_account_invalid', 'payee_account_locked_or_closed', 'payee_account_closed'
   ].some((needle) => haystack.includes(needle));
 }
 

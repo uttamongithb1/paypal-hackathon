@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import {
   buildCreateOrderPayload,
   buildExperienceContext,
+  buildPurchaseUnits,
+  isCapabilityRejection,
   isShippingRejection
 } from '../../server/payments/paypal.gateway.mjs';
 import { checkoutReturnUrls, requestOrigin } from '../../server/lib/return-urls.mjs';
@@ -123,6 +125,44 @@ describe('PayPal create-order payload', () => {
       assert.equal(unit.shipping.address.address_line_1, ADDRESS.line1);
     }
   });
+
+  // Regression for the live DUPLICATE_INVOICE_ID failure: on an ephemeral disk (Render free tier)
+  // every redeploy reseeds and the sequential orderNumber restarts, so invoice_id must NOT be the
+  // orderNumber alone — a previous deployment already captured that number in the same PayPal
+  // account. The order's internal _id is the globally-unique discriminator.
+  test('invoice_id is unique per order instance even when the orderNumber is reused after a reseed', () => {
+    const first = buildPurchaseUnits(order({ _id: 'o1', orderNumber: 'SP-2026-000045' }), singlePlan)[0];
+    const afterRedeploy = buildPurchaseUnits(order({ _id: 'f4a9c2b1d8e706534219abce', orderNumber: 'SP-2026-000045' }), singlePlan)[0];
+    assert.notEqual(first.invoice_id, afterRedeploy.invoice_id, 'reused orderNumber must not reuse invoice_id');
+    assert.ok(first.invoice_id.startsWith('SP-2026-000045-'), 'invoice_id keeps the readable orderNumber prefix');
+    assert.ok(afterRedeploy.invoice_id.endsWith('f4a9c2b1d8e706534219abce'));
+  });
+
+  test('custom_id stays the orderNumber so webhook + verification matching is unchanged', () => {
+    const unit = buildPurchaseUnits(order({ _id: 'o1', orderNumber: 'SP-2026-000045' }), singlePlan)[0];
+    assert.equal(unit.custom_id, 'SP-2026-000045');
+  });
+
+  test('split orders keep reference_id in invoice_id and append the unique order id', () => {
+    const splitPlan = {
+      mode: 'split',
+      units: [
+        { ...singlePlan.units[0], referenceId: 'r1', amountMinor: 50000, itemTotalMinor: 50000 },
+        { ...singlePlan.units[0], referenceId: 'r2', amountMinor: 37900, itemTotalMinor: 37900 }
+      ]
+    };
+    const units = buildPurchaseUnits(order({ _id: 'o1', orderNumber: 'SP-2026-000045' }), splitPlan);
+    assert.equal(units[0].invoice_id, 'SP-2026-000045-r1-o1');
+    assert.equal(units[1].invoice_id, 'SP-2026-000045-r2-o1');
+    assert.equal(units[0].custom_id, 'SP-2026-000045:r1');
+    assert.equal(units[1].custom_id, 'SP-2026-000045:r2');
+  });
+
+  test('invoice_id never exceeds the PayPal 127 character limit', () => {
+    const longOrder = order({ _id: 'a'.repeat(24), orderNumber: `SP-2026-${'9'.repeat(110)}` });
+    const unit = buildPurchaseUnits(longOrder, singlePlan)[0];
+    assert.ok(unit.invoice_id.length <= 127);
+  });
 });
 
 describe('isShippingRejection', () => {
@@ -134,6 +174,23 @@ describe('isShippingRejection', () => {
   test('does not mistake other failures for an address problem', () => {
     assert.equal(isShippingRejection({ issue: 'INSTRUMENT_DECLINED', message: 'The payment was declined' }), false);
     assert.equal(isShippingRejection({ issue: 'PLATFORM_FEES_NOT_SUPPORTED', message: 'not enabled' }), false);
+  });
+});
+
+describe('isCapabilityRejection', () => {
+  test('recognises the documented capability rejections', () => {
+    assert.equal(isCapabilityRejection({ issue: 'PLATFORM_FEES_NOT_SUPPORTED', message: 'platform_fees not enabled' }), true);
+    assert.equal(isCapabilityRejection({ issue: 'MSP_NOT_SUPPORTED', message: 'not eligible' }), true);
+  });
+
+  test('treats an unpayable payee account as a capability problem so the shopper can still buy', () => {
+    assert.equal(isCapabilityRejection({ issue: 'PAYEE_ACCOUNT_INVALID', message: 'The payee account is invalid.' }), true);
+    assert.equal(isCapabilityRejection({ issue: 'PAYEE_ACCOUNT_LOCKED_OR_CLOSED', message: 'The payee account is locked or closed.' }), true);
+  });
+
+  test('does not mistake a shopper funding failure for a capability problem', () => {
+    assert.equal(isCapabilityRejection({ issue: 'INSTRUMENT_DECLINED', message: 'The payment was declined' }), false);
+    assert.equal(isCapabilityRejection({ issue: 'INSUFFICIENT_FUNDS', message: 'Insufficient funds' }), false);
   });
 });
 

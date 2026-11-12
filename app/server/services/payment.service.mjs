@@ -26,6 +26,12 @@ const ISSUE_MAP = {
   PAYMENT_PROVIDER_UNAVAILABLE: { code: 'PAYMENT_PROVIDER_UNAVAILABLE', reason: 'TIMEOUT', message: 'PayPal is temporarily unavailable. Your order is safe — try again in a moment.' },
   ORDER_ALREADY_CAPTURED: { code: 'ORDER_ALREADY_CAPTURED', reason: 'UNKNOWN', message: 'This payment was already captured.' },
   RESOURCE_NOT_FOUND: { code: 'PAYPAL_ORDER_INVALID', reason: 'UNKNOWN', message: 'That PayPal order is no longer valid. Start a new payment attempt.' },
+  // The buyer has not approved the PayPal order yet (capture was attempted before approval).
+  ORDER_NOT_APPROVED: { code: 'PAYER_ACTION_REQUIRED', reason: 'ORDER_NOT_APPROVED', message: 'Please approve the payment in PayPal to finish checkout.' },
+  // PayPal's duplicate-invoice guard fired. With unique invoice ids this now only happens when a
+  // prior attempt on this order already captured — the correct anti-double-charge outcome. Surface
+  // it plainly instead of a generic error so it can be reconciled, never silently retried.
+  DUPLICATE_INVOICE_ID: { code: 'ORDER_ALREADY_CAPTURED', reason: 'DUPLICATE_INVOICE_ID', message: 'This order was already paid. We are confirming the payment — please do not pay again.' },
   UNKNOWN: { code: 'PAYMENT_PROVIDER_ERROR', reason: 'UNKNOWN', message: 'Something went wrong at PayPal. No money has left your account.' }
 };
 
@@ -517,16 +523,20 @@ export class PaymentService {
     const order = this.order.find({ orderId });
     const mapped = ISSUE_MAP[issue] ?? ISSUE_MAP.UNKNOWN;
 
-    if (issue === 'ORDER_ALREADY_CAPTURED') {
-      // PayPal says captured. Trust PayPal for the amount, but only mark paid after verification.
+    if (issue === 'ORDER_ALREADY_CAPTURED' || issue === 'DUPLICATE_INVOICE_ID') {
+      // PayPal says a capture already exists for this order / invoice id. Trust PayPal for the
+      // amount, but only mark paid after verification. DUPLICATE_INVOICE_ID is the duplicate-invoice
+      // guard firing on a retry whose earlier attempt really captured; its error body carries no
+      // capture, so it falls through to reconciliation rather than being marked failed (which would
+      // wrongly tell the shopper an already-paid order failed and invite a second charge).
       const existingCapture = raw?.purchase_units?.[0]?.payments?.captures?.[0] ?? raw?.details?.[0];
       if (existingCapture?.amount) {
         const verification = this.verifyCapture(order, raw?.purchase_units ? raw : { purchase_units: [{ custom_id: order.orderNumber, payments: { captures: [existingCapture] } }], status: 'COMPLETED' });
         if (verification.ok) return this.applyCapture({ orderId, attempt, response: raw?.purchase_units ? raw : { status: 'COMPLETED', purchase_units: [{ custom_id: order.orderNumber, payments: { captures: [existingCapture] } }] }, verification, auth });
       }
-      this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.UNKNOWN, failureReason: 'UNKNOWN', responseSnapshot: this.strip(raw) });
-      this.order.timeline(orderId, 'capture_already_exists', 'paypal', { needsReconcile: true });
-      throw new ApiError('ORDER_ALREADY_CAPTURED', 'This payment was already captured. We are confirming the details now.', { details: { orderId } });
+      this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.UNKNOWN, failureReason: mapped.reason, responseSnapshot: this.strip(raw) });
+      this.order.timeline(orderId, 'capture_already_exists', 'paypal', { needsReconcile: true, issue });
+      throw new ApiError('ORDER_ALREADY_CAPTURED', mapped.message, { details: { orderId } });
     }
 
     this.attempts.updateOne(
@@ -661,7 +671,10 @@ export class PaymentService {
       if (byPaypalOrder) return byPaypalOrder;
     }
     const ref = String(resource?.custom_id || resource?.invoice_id || '');
-    const orderNumber = ref.split(':')[0].replace(/-m\d+$/, '');
+    // custom_id is the authoritative correlation field and is always the orderNumber (split:
+    // `orderNumber:mN`). invoice_id is only a fallback and now carries a unique order-id suffix
+    // (`orderNumber[-mN]-<24hex>`), so strip that suffix and the per-seller reference before lookup.
+    const orderNumber = ref.split(':')[0].replace(/-[0-9a-f]{24}$/, '').replace(/-m\d+$/, '');
     if (orderNumber) {
       const byNumber = this.order.orders.findOne({ orderNumber });
       if (byNumber) return byNumber;

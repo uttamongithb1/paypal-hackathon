@@ -17,7 +17,7 @@ POST /api/v1/orders {quoteId, quoteHash, contact}          (our API)
   ├─ create Order(status=awaiting_payment), snapshot lines, commit holds
   ├─ PayPal-Request-Id = sha256(`pp:create:{orderId}:{attemptNo}`)
   ├─ POST https://api-m.sandbox.paypal.com/v2/checkout/orders
-  │    { intent:"CAPTURE", purchase_units:[{ custom_id: orderNumber, invoice_id: orderNumber,
+  │    { intent:"CAPTURE", purchase_units:[{ custom_id: orderNumber, invoice_id: orderNumber-orderId,
   │      amount:{ currency_code:"USD", value:"1903.04", breakdown:{ item_total:{…},
   │      shipping:{…}, tax_total:{…} } }, items:[…], shipping:{…} }], payment_source:{ paypal:{} } }
   ├─ store payment.paypalOrderId; emit checkout_started
@@ -68,7 +68,7 @@ Rules:
 1. `amount.value` must equal `order.amounts.totalMinor` formatted with **exactly 2 decimals** (`(minor/100).toFixed(2)`), and `currency_code` must be `USD`.
 2. Include the full `breakdown` — `item_total`, `tax_total`, `shipping` (omit `shipping` if 0? **No**: send `"0.00"` for explicitness) and any `discount`. PayPal rejects inconsistent breakdowns; the builder asserts `item_total + tax + shipping === value` before sending (throws `INTERNAL_AMOUNT_BUILDER` in dev, logs + alerts in prod).
 3. `items[]`: one entry per order line — `name` (≤ 127 chars, truncated), `description` (≤ 127), `unit_amount`, `quantity` (string), `category: "PHYSICAL_GOODS"`, `sku`.
-4. `purchase_units[0].custom_id` and `invoice_id` = our `orderNumber` (max 127 chars). This is how webhooks are matched back to our orders even if we lose the paypalOrderId mapping.
+4. `purchase_units[0].custom_id` = our `orderNumber`; `invoice_id` = `orderNumber` + a unique suffix (the order's internal `_id`, e.g. `SP-2026-000123-665f1c2a9b3d4e5f6a7b8c9d`), max 127 chars. `custom_id` is how webhooks are matched back to our orders even if we lose the paypalOrderId mapping. `invoice_id` must be **globally unique per captured transaction**: PayPal rejects a capture with `DUPLICATE_INVOICE_ID` when the account has already captured that invoice id. The sequential `orderNumber` alone is unsafe on an ephemeral disk (Render free tier) — every redeploy reseeds and the counter restarts, so a new order can reuse a number a previous deployment already captured in the same PayPal account. The random `_id` suffix is the discriminator. Retries of the *same* order keep the same `invoice_id` on purpose: if a prior attempt really captured, the duplicate guard is the correct anti-double-charge behaviour and reconciliation recovers the paid state.
 5. `payment_source.paypal.experience_context` — **not** `application_context`, which PayPal has deprecated in favour of this path. A create-order that still uses the old block opens a hosted checkout page with no way back to the order, and the buyer's approval ends on "Things don't appear to be working at the moment" (`genericError`) instead of on the order.
    - `brand_name: "ShopPilot AI"`, `locale: "en-US"`, `landing_page: "LOGIN"`, `user_action: "PAY_NOW"`.
    - `return_url` / `cancel_url`: the origin of the request that created the order, plus `/checkout/{orderId}?from=paypal` (and `&cancelled=1` for the cancel URL). These are **required** — without them PayPal cannot hand the buyer back and the order stays unpaid.
@@ -93,7 +93,7 @@ sellers are silently never paid. The multi-seller flow fixes that with one order
 { "purchase_units": [
     { "reference_id": "m1",                       // required whenever there is more than one unit
       "custom_id": "SP-2026-000123:m1",           // orderNumber:unit — matches webhooks back to us
-      "invoice_id": "SP-2026-000123-m1",
+      "invoice_id": "SP-2026-000123-m1-665f1c2a9b3d4e5f6a7b8c9d", // + unique order _id (DUPLICATE_INVOICE_ID guard)
       "amount": { "currency_code": "USD", "value": "1243.80",
                   "breakdown": { "item_total": {...}, "tax_total": {...}, "shipping": {...} } },
       "payee": { "email_address": "vertex-systems@sandbox.demo",
@@ -233,6 +233,8 @@ eCheque / bank review | `capture.status === 'PENDING'` | `pending` | `payment_pr
 Payer authentication required | `PAYER_ACTION_REQUIRED` | `awaiting_approval` | `awaiting_payment` | 409 `PAYER_ACTION_REQUIRED` | re-present the button | yes
 Order already captured (same attempt) | issue `ORDER_ALREADY_CAPTURED` + our DB already `paid` with same capture id | `succeeded` | `paid` | 200 + `Idempotent-Replay: true` | success (no double charge) | —
 Order already captured (unknown state) | same issue, our DB not `paid` | `unknown` → recon | after recon: `paid` | 409 `ORDER_ALREADY_CAPTURED` then 200 on re-poll | "Confirming…" then success | —
+Duplicate invoice id (a prior attempt really captured) | issue `DUPLICATE_INVOICE_ID` | `unknown` → recon | unchanged (not `payment_failed`) | 409 `ORDER_ALREADY_CAPTURED` | "Already paid — confirming, do not pay again" | no (recon decides)
+Capture before buyer approval | issue `ORDER_NOT_APPROVED` | `failed` | `payment_failed` | 402 `PAYER_ACTION_REQUIRED` | "Approve the payment in PayPal to finish" | yes (re-approve)
 PayPal order voided/expired | `GET /v2/checkout/orders/{id}` → `VOIDED`/404 | `failed` | `payment_failed` | 409 `PAYPAL_ORDER_INVALID` | re-create attempt (`POST /payments/{id}/retry`) | yes
 Network timeout / PayPal 5xx | fetch error / 5xx after retries | `unknown` (kept alive) | `payment_processing` | 503 `PAYMENT_PROVIDER_UNAVAILABLE` | "We'll confirm shortly", poll `/payments/{id}/status` | no (recon decides)
 Amount/currency mismatch on capture | V4/V5 fail | `failed` | `payment_failed` | 409 `PAYMENT_VERIFICATION_FAILED` | danger panel, "Reference {requestId}" | manual support

@@ -287,7 +287,7 @@ M2 · AGT-10 · 14 h total
 **Acceptance:** token cached and single-flighted; sandbox assertion at boot; timeouts/retries per doc; errors mapped.
 ### PAY-02 — Payment attempt model · 3 h
 ### PAY-03 — Request builder · 4 h
-**Acceptance:** breakdown sum assertion; 2-decimal strings; `custom_id`/`invoice_id` = orderNumber; items/quantities correct; deterministic `PayPal-Request-Id`.
+**Acceptance:** breakdown sum assertion; 2-decimal strings; `custom_id` = orderNumber and `invoice_id` = orderNumber + unique order `_id` (globally unique per captured transaction — see the `DUPLICATE_INVOICE_ID` regression); items/quantities correct; deterministic `PayPal-Request-Id`.
 ### PAY-04 — Create order integration · 4 h
 ### PAY-05 — Advisory lock · 3 h
 **Acceptance:** concurrent acquisition → one winner; lock TTL recovery tested.

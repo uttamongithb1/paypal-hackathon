@@ -4,7 +4,7 @@
 
 **PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI · Best Use of AG Grid ($5,000)*
 
-**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 149/149 Passing (0 Failed)
+**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 158/158 Passing (0 Failed)
 
 A shopper states a job to be done in plain language. An AI agent grounds every recommendation in a
 real catalogue, prepares a real order, and opens a real PayPal checkout — then stops.
@@ -269,7 +269,7 @@ docs/                 Full engineering doc set — PRD, API spec, agent spec, pa
 
 | Suite | Result |
 |---|---|
-|  `npm test` (12 suites) | **149 / 149 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
+|  `npm test` (13 suites) | **158 / 158 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
 | `npm run ledger` | **All 10 invariants hold** (money math, verified capture required, stock never negative, idempotency, zero PII, Monotonic funnel) |
 | `npm run paypal:check` | **PayPal Sandbox Orders v2 API connected** (`api-m.sandbox.paypal.com`), OAuth2 + Order Creation verified |
 | `npm run paypal:settlement` | **Multi-seller split settlement probe verified** with fallback ladder |
