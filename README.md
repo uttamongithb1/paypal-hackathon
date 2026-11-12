@@ -1,308 +1,200 @@
-# ShopPilot AI — conversational commerce with a PayPal checkout the agent cannot approve
+# ShopPilot AI
+
+Conversational commerce with a PayPal checkout the AI agent cannot approve.
 
 [![CI](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml/badge.svg)](https://github.com/uttamongithb1/paypal-hackathon/actions/workflows/ci.yml)
 
-**PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI · Best Use of AG Grid ($5,000)*
+**Live demo:** <https://paypal-hackathon.onrender.com/> · **Architecture & invariant proof:** <https://paypal-hackathon.onrender.com/how-it-works> · **Tests:** 162 passing · **License:** MIT
 
-**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 162/162 Passing (0 Failed)
+A shopper describes what they need in plain language. ShopPilot grounds every recommendation in a
+real catalogue, builds a multi-seller cart, prepares a server-priced order, and opens PayPal checkout.
+The agent has **no payment tool**: only the human can approve, and only the server can mark an order
+paid after verifying PayPal's capture.
 
-A shopper states a job to be done in plain language. An AI agent grounds every recommendation in a
-real catalogue, prepares a real order, and opens a real PayPal checkout — then stops.
-**The agent has no payment tool and no way to obtain one.** Only the human approves; only the
-server, after verifying PayPal's capture, may mark the order paid.
+## What it does
 
-> ### The one-line pitch
-> Every other agent demo asks you to trust it with your money. This one **cannot** spend it —
-> not because it chooses not to, but because approval is structurally outside the tool registry.
+- **Grounded AI shopping** — requirement extraction, catalogue search, comparison, stock checks,
+  cart edits, quote estimates and policy answers through a closed, validated tool registry.
+- **Human-approved PayPal checkout** — Orders v2 create/approve/capture, idempotency, webhook
+  signature verification, capture verification, refunds and reconciliation.
+- **Multi-seller settlement** — one purchase unit per seller with `payee` and optional platform fees;
+  an honest fallback ladder when the sandbox account lacks a capability.
+- **Role-based surfaces** — shoppers land on the storefront, merchants on `/merchant`, admins on the
+  `/admin` Platform Console with AG Grid sorting/filtering and CSV export.
+- **Auditable state** — integer-cent money math, stock holds, order state machine, payment attempts,
+  timeline events and a ledger invariant report.
 
----
+## Quick start
 
-## Run it in one command
+Requires Node.js **20.11+** and npm. No database, PayPal account or API key is needed for the offline
+simulator.
 
 ```bash
-git clone <this-repo> && cd shoppilot-ai
+git clone https://github.com/uttamongithb1/paypal-hackathon.git
+cd paypal-hackathon
 ./dev-up.sh
 ```
 
-Then open **http://localhost:4000/**
-
-`dev-up.sh` checks Node, installs dependencies, seeds the demo store if missing, runs the
-self-check (unit tests + ledger invariants), and starts the server.
+Open <http://localhost:4000/>.
 
 ```bash
-./dev-up.sh --check     # verify without starting a server (used by judges/CI)
-./dev-up.sh --reseed    # reset to the documented demo state, then start
+./dev-up.sh --check    # install if needed, seed if empty, run the verification gate; do not start a server
+./dev-up.sh --reseed   # reset to the documented demo state, then start
 ```
 
-**No API keys, database, or PayPal account required.** The default `PAYPAL_MODE=simulator` drives
-the complete payment lifecycle — including declines, pending captures, amount mismatches and
-duplicate webhooks — entirely in-process. A real PayPal sandbox is one env var away (below).
+Manual equivalent:
 
-### Demo accounts (seeded)
+```bash
+cd app
+npm ci
+npm run seed
+npm start
+```
 
-| Role | Email | Password | What to look at |
+### Demo accounts
+
+| Role | Email | Password | Lands on |
 |---|---|---|---|
-| Shopper | `customer@demo.dev` | `Customer@12345` | Orders, receipts, the payment audit trail |
-| Merchant | `merchant@demo.dev` | `Merchant@12345` | Catalogue, orders, payment attempts, analytics funnel |
-| Admin | `admin@demo.dev` | `Admin@12345` | **AG Grid Financial Console** (`/admin`): GMV, seller net payouts, platform fees, column filtering/sorting |
+| Shopper | `customer@demo.dev` | `Customer@12345` | Storefront |
+| Merchant | `merchant@demo.dev` | `Merchant@12345` | `/merchant` dashboard |
+| Admin | `admin@demo.dev` | `Admin@12345` | `/admin` Platform Console |
 
-> **Testing PayPal Checkout Approval:** When approving in the sandbox popup modal, use any Personal Sandbox Buyer account (or your developer account from [developer.paypal.com](https://developer.paypal.com/) → Testing Tools → Sandbox Accounts).
+Guest checkout works without sign-in. To approve a real sandbox payment, use a **Personal** sandbox
+buyer account from PayPal Developer → Testing Tools → Sandbox Accounts. Never use live credentials.
 
----
+## PayPal sandbox
 
-## The 90-second tour
-
-1. **Ask for something real** — on `/`, type:
-   > *I need a laptop for full-stack development under $900 with 16 GB RAM and a 512 GB SSD*
-
-   The agent extracts a structured requirement (category · budget · hard constraints), emits
-   `tool.activity` frames while it searches, and returns **4 real products** with per-item
-   `whyItFits`, pros **and honest cons** — every number read from the catalogue, not invented.
-
-2. **Watch it reason about your budget** — *"actually make it under $700"* → requirement revision
-   increments, the card set changes, and nothing over budget survives.
-
-3. **Cart → checkout** — the agent prepares the order. A stock hold is placed, prices are frozen
-   into a quote hash, and the checkout summary shows subtotal, shipping, tax and total.
-
-4. **The agent stops at the payment boundary** — the PayPal order exists, but no tool in the
-   registry can capture it. You approve. PayPal captures. Only then does the backend verify.
-
-5. **See why that matters** — the trust panel lets you attack the payment you just made:
-   replay the capture, re-deliver the webhook, force an amount mismatch. The order does not budge.
-
-6. **Merchant side** — `/merchant` shows the same order with its payment attempt trail
-   (`failed → succeeded`), the verification outcome, and a funnel of views → cart adds →
-   checkout attempts → purchases.
-
-7. **Browse without talking** — `/catalogue` is the whole store as a grid: real photography,
-   rating, live stock, compare-at price, category filter and search. It renders the *same* card
-   component the agent uses in conversation, fed from the same `/products` endpoint, so the price
-   and stock in a chat reply can never disagree with the shelf.
-
-8. **Platform Operator Console** — `/admin` embeds **AG Grid Community v32** for high-density financial
-   reconciliation: inspect gross merchandise value (GMV), 5% platform fees, per-seller net payouts,
-   custom column filtering, and single-click CSV export.
-
----
-
-## Why this is hard, and what we built for it
-
-A payment integration is easy to demo and hard to get right. This one treats the hard parts as the
-product:
-
-| Failure that eats real money | What ShopPilot does |
-|---|---|
-| Agent spends without consent | No payment tool exists in the registry — enforced by construction, not by prompt |
-| Double charge on a double click | Idempotency keys on order creation **and** capture; a replay returns the *same* capture id |
-| Charged but no goods | Stock commits inside the same transaction as the paid transition; failure rolls back and flags for reconcile |
-| Attacker-supplied "payment succeeded" | Nothing is trusted until the backend fetches the capture from PayPal and re-checks V1–V7 |
-| Price changed between quote and pay | Quote hash mismatch → `409 QUOTE_STALE`, re-approval required, never a silent overcharge |
-| Webhook replay or forged webhook | Signature verified against PayPal's API + deduplicated by `event.id`; a forged payload cannot move an order |
-| Order stuck "pending" forever | Webhook-driven confirmation plus a reconciliation job; the order only becomes `paid` on verified capture |
-
-### PayPal surface actually exercised
-
-- **Orders v2** — create, get, capture, void (`/v2/checkout/orders`)
-- **OAuth2** `client_credentials` with token caching and expiry
-- **Idempotency** — `PayPal-Request-Id` on create and capture
-- **Webhooks** — `POST /v1/notifications/verify-webhook-signature`, signature verification +
-  `event.id` dedupe; handles `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED|DENIED|REFUNDED|REVERSED`
-- **Failure semantics** — `INSTRUMENT_DECLINED` → actionable retry, `PENDING` → 202 and poll,
-  `ORDER_NOT_APPROVED` refused, capture-amount mismatch → order stays unpaid + support reference
-- **JavaScript SDK** Buttons wired server-side (`createOrder` returns the server-created order id)
-
----
-
-## Switching on the real PayPal sandbox (2 minutes)
+The default `PAYPAL_MODE=simulator` exercises the full payment lifecycle in-process. To use the real
+PayPal sandbox:
 
 ```bash
 cd app
 cp .env.example .env
-# then set:
-#   PAYPAL_MODE=sandbox
-#   PAYPAL_CLIENT_ID=...        (developer.paypal.com → Apps & Credentials → Sandbox)
-#   PAYPAL_CLIENT_SECRET=...
-#   PAYPAL_WEBHOOK_ID=...       (optional — required for webhook signature verification)
-
-npm run paypal:check
 ```
 
-`paypal:check` performs a real OAuth2 handshake, creates a real sandbox order, prints the buyer
-approval URL, and re-verifies the amount and `custom_id` the way the backend does at capture time.
-Approve it as a sandbox **buyer** account, then:
+Set:
 
-```bash
-npm run paypal:check -- --capture <paypalOrderId>   # prints the real capture id
+```dotenv
+PAYPAL_MODE=sandbox
+PAYPAL_CLIENT_ID=<sandbox REST app client id>
+PAYPAL_CLIENT_SECRET=<sandbox REST app secret>
+PAYPAL_WEBHOOK_ID=<webhook id, required to trust inbound webhooks>
+WEB_ORIGIN=http://localhost:4000
 ```
 
-**Splitting one basket between several sellers** needs the *Complete Payments Platform for
-Marketplaces and Platforms* capability (`payee` + `platform_fees`), which requires a **business**
-sandbox account. Ask your own account what it supports before recording a demo:
+Then:
 
 ```bash
-npm run paypal:settlement                    # creates a real 2-seller sandbox order, reads the payees back
-npm run paypal:settlement -- --capture <id>  # after a buyer approves: one capture per seller
+npm run paypal:check                         # OAuth + create order + buyer approval URL
+npm run paypal:check -- --capture <orderId>  # after buyer approval: capture + verify
+npm run paypal:settlement                    # multi-seller capability/settlement probe
+npm run paypal:settlement -- --capture <id>  # after approval: per-seller captures
 ```
 
-Control it with `PAYPAL_SETTLEMENT=auto|split|single` (default `auto`). `auto` asks for a split and,
-if the account cannot do it **or a seller still has only a seeded `@sandbox.demo` placeholder payee**,
-completes the order as a single unit **and says so** in the UI, the order timeline and analytics — see
-`docs/payments_paypal.md` §3a. Set `PAYPAL_PAYEE_<SLUG>` to a confirmed sandbox business account per
-seller to enable real multi-seller settlement.
+`PAYPAL_SETTLEMENT=auto|split|single` controls settlement. `auto` tries split settlement and records
+any downgrade to split-without-fees or single-unit capture. Configure confirmed sandbox **business**
+payees with `PAYPAL_PAYEE_<SLUG>`; seeded placeholder payees are never used for real split capture.
+See [docs/payments_paypal.md](docs/payments_paypal.md).
 
----
+## AI tools and how they are used
 
-## Run the AI on a real model
+| Tool | Use in this project |
+|---|---|
+| **Groq Cloud — `openai/gpt-oss-120b`** | Live tool-calling model for the deployed demo: interprets shopper intent, selects closed registry tools and composes grounded responses. |
+| **OpenAI-compatible chat-completions API** | Provider abstraction in `app/server/agent/llm.mjs`; any compatible endpoint/model can be configured. |
+| **Deterministic planner** | Offline fallback and CI path. Same tool registry, guardrails and SSE frames; no API key or network model required. |
+| **PayPal Orders v2 + Webhooks** | Central payment capability: server-created orders, human approval, verified capture, multi-seller settlement and event reconciliation. |
+| **AG Grid Community** | Admin financial console: sortable/filterable order and settlement grids with CSV export. |
+| **Render** | Hosted Node deployment via `render.yaml`. |
 
-The shipped default is a deterministic planner: same tool registry, same SSE frames, same
-guardrails, reproducible for judging without a key.
+The model never receives PayPal credentials and cannot create, approve, capture or refund a payment.
+Prices, stock, totals and payment state come from server tools, not model text. A turn reports whether
+it was served by the live model or the deterministic fallback.
 
-```bash
-# app/.env
+To run a live model locally:
+
+```dotenv
 FEATURE_LIVE_LLM=true
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4.1-mini
-```
-
-Groq works the same way, and its free tier is enough for a demo:
-
-```bash
 LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_API_KEY=gsk_...
-LLM_MODEL=openai/gpt-oss-120b        # tool use + 131k context on a developer key
+LLM_API_KEY=<your key>
+LLM_MODEL=openai/gpt-oss-120b
 ```
 
-A turn reports which path served it in `message.end.usage`: `profile: "live"` with the model name
-when the model answered, or `profile: "deterministic-fallback"` with a `fallbackReason` /
-`fallbackDetail` when it degraded — so a misconfigured key is diagnosable from the response, not
-just from the server log.
-
----
-
-## Deploy it (Render, free)
-
-The repo has a `render.yaml` blueprint — **Render → New → Blueprint → pick this repo** and it
-configures itself. Three secrets are prompted for on first deploy:
-
-| Variable | Value |
-|---|---|
-| `PAYPAL_CLIENT_ID` | from developer.paypal.com → Apps & Credentials → **Sandbox** |
-| `PAYPAL_CLIENT_SECRET` | same app, "Show" next to the secret |
-| `LLM_API_KEY` | a Groq key (console.groq.com/keys) |
-
-Everything else is generated. `JWT_SECRET` and `PII_HASH_PEPPER` are created per service, never
-committed, and `COOKIE_SECURE=true` is set because the app is now served over HTTPS.
-
-The blueprint reproduces the deployed demo exactly: `PAYPAL_MODE=sandbox`, `PAYPAL_SETTLEMENT=auto`,
-`PLATFORM_FEE_BPS=500`, and a **live** model — `LLM_PROVIDER=groq`, `LLM_MODEL=openai/gpt-oss-120b`,
-`LLM_BASE_URL=https://api.groq.com/openai/v1` — so a judge who deploys from the blueprint gets the
-same agent, not the deterministic fallback planner. `PAYPAL_WEBHOOK_ID` is optional and is left
-unset by default: without it the server refuses to trust inbound PayPal events, which is the safe
-default, and the demo does not need it because the capture is synchronous.
-
-The host health-checks `/api/v1/healthz` (liveness), not `/api/v1/readyz` (which returns 503 when
-PayPal is unreachable), so a sandbox hiccup degrades checkout instead of taking the site down.
-
-**Why it works on an ephemeral disk:** the store is a JSON file, and free tiers wipe it on restart.
-`SEED_ON_BOOT` (on by default) seeds the catalogue whenever the store is empty — so a cold instance
-still wakes up as a complete shop with 24 products and the demo logins. It seeds *only* when the
-store is empty, so a restart never destroys data.
-
-**The free-plan trade-off, stated plainly:** Render spins down after ~15 minutes of inactivity and
-the next request takes ~50 seconds to wake. For a judged demo that is a real risk — a judge who
-clicks a sleeping link may see a timeout. Three ways to handle it:
-
-1. Upgrade that one service to **Starter ($7/month)** for the judging window (Dec 1–15). No spin-down.
-2. Keep it free and point a free uptime pinger (cron-job.org, UptimeRobot) at `/api/v1/readyz`
-   every 10 minutes. Crude, but it keeps the instance warm.
-3. Accept the cold start and put the ~50s in the description so nobody thinks it is broken.
-
-Option 1 for three weeks costs less than a takeaway meal and removes the only failure mode you
-cannot control on judging day.
-
-**Where not to deploy:** Vercel, Netlify, Cloudflare Workers and similar serverless platforms.
-They are a poor fit for this app — a long-lived Express process plus a writable filesystem is the
-whole design, and the file store would be frozen or thrown away between invocations. If you ever
-need serverless, the fix is `MONGO_URI` plus the Mongo driver, which is documented but not built.
-
-**Other hosts that work:** Railway and Fly.io (both fine, both want a card), Cloud Run (works, but
-scale-to-zero and ephemeral disk mean the same cold-start issue), or any small VPS with
-`bash dev-up.sh` behind Caddy. Render is recommended only because it is a sponsor and needs no
-Dockerfile.
-
-## Where the product photography comes from
-
-The 24 catalogue photos are imported, at build time, from two public key-less dummy product APIs —
-[DummyJSON](https://dummyjson.com) (laptops, phones, audio) and
-[Fake Store](https://fakestoreapi.com) (monitors) — and vendored into `app/shop/products/` as
-`webp`. Eight form factors that neither API covers were shot locally. Provenance for every file is
-in `data/product-photo-sources.json`; regenerate with:
+## Verification
 
 ```bash
-cd app && npm run photos      # re-fetch + normalise (needs ImageMagick); --force re-downloads
+cd app
+npm test          # unit + integration + agent evals
+npm run verify    # tests + ledger invariants + recorded test-count gate
+npm run ledger    # invariant report against the current store
+npm run smoke     # simulator-only HTTP smoke test against a running local server
+npm run test:ui   # simulator-only browser regression against a local server
 ```
 
-The images are **vendored rather than hot-linked** on purpose: this shop's claim is that the server
-knows the stock and the price, and a rate-limited free API at 2am should not be able to leave a
-judge looking at a broken catalogue. Nothing is fetched from either API at request time, and the
-app works offline. Photography is presentation only — it never touches price, stock or ranking.
+CI runs `npm run verify` and the UI import-graph check. The current suite is **162 tests / 13 suites**.
+Do not run simulator-only smoke/UI scripts against the public deployment.
 
-## Architecture
+## Deploy on Render
 
+The repository includes `render.yaml`. In Render: **New → Blueprint → select this repository**, then
+set the secret environment variables in the dashboard:
+
+- `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`
+- `LLM_API_KEY`
+- optional confirmed sandbox business payees: `PAYPAL_PAYEE_VERTEX_SYSTEMS`,
+  `PAYPAL_PAYEE_NOVATECH_RETAIL`, `PAYPAL_PAYEE_AUDIOPEAK`
+
+`JWT_SECRET` and `PII_HASH_PEPPER` are generated by Render. The blueprint uses sandbox PayPal, live
+Groq, HTTPS cookies and `SEED_ON_BOOT=true`.
+
+**Storage trade-off:** the reference build uses a JSON file store. Render's free plan has an ephemeral
+disk, so visitor-created data can disappear on redeploy/restart; the catalogue and demo accounts are
+reseeded when empty. Payment invoice ids include a unique order id so counter resets cannot reuse a
+captured PayPal invoice. For durable data, implement the documented Mongo driver or attach persistent
+storage. The bundled `MONGO_URI` path is intentionally a stub and refuses to boot rather than pretend
+persistence works.
+
+## Repository layout
+
+```text
+app/
+  server/        Express 5 API, agent, services, PayPal gateway, file store
+  shop/          Vanilla-ESM storefront, merchant dashboard, admin AG Grid console
+  scripts/       seed/reset, tests, verification, ledger, PayPal probes, photo import
+  tests/         unit, integration and agent evals
+contracts/       agent_tools.json — runtime tool contract loaded by the server
+data/            catalogue seed and product-photo provenance
+docs/            as-built architecture, API, payments, security, setup and runbooks
+.github/         CI workflow
+render.yaml      Render blueprint
+dev-up.sh        one-command local bootstrap
 ```
-shop/                 Vanilla-ESM storefront: catalogue + AI assistant, cart drawer, checkout, orders, merchant, platform console
-server/
-  http/               Express 5 app, routes, validation (zod), middleware, error mapping
-  agent/              Requirement extraction · prompt builder · tool registry · orchestrator (SSE)
-  services/           catalogue · inventory · cart · quote · order · payment · analytics · session
-  payments/           paypal.gateway.mjs  → PaypalSandbox (real API) | PaypalSimulator (in-process)
-  store/              Document store (JSON-file now, Mongo driver stub for MONGO_URI)
-  domain/             Order state machine, analytics event catalogue, business policies
-scripts/              seed · reset · ledger-check · smoke · demo · product art · paypal:check · paypal:settlement
-tests/                unit (money, state machine, requirement parsing, intents) · integration (HTTP)
-docs/                 Full engineering doc set — PRD, API spec, agent spec, payments, security, runbooks
-```
 
-### Verified state
-
-| Suite | Result |
-|---|---|
-|  `npm test` (13 suites) | **162 / 162 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
-| `npm run ledger` | **All 10 invariants hold** (money math, verified capture required, stock never negative, idempotency, zero PII, Monotonic funnel) |
-| `npm run paypal:check` | **PayPal Sandbox Orders v2 API connected** (`api-m.sandbox.paypal.com`), OAuth2 + Order Creation verified |
-| `npm run paypal:settlement` | **Multi-seller split settlement probe verified** with fallback ladder |
-| `npm run smoke` | **24/24 end-to-end smoke tests passing** against running server |
-
-```bash
-npm run verify     # reset → seed → tests → ledger invariants
-npm test           # unit + integration + evals
-```
-
----
+Product photos are vendored WebP assets under `app/shop/products/`; provenance is in
+`data/product-photo-sources.json`. Nothing is hot-linked at request time. Re-import external photos
+with `cd app && npm run photos` (ImageMagick recommended).
 
 ## Documentation
 
-Written to be built from, not skimmed: `prd.md` (with numbered acceptance criteria), `design_system.md`,
-`docs/api_spec.md` (every endpoint, every error code), `docs/ai_agent_spec.md` (tools, limits,
-guardrails), `docs/payments_paypal.md` (the full lifecycle and failure matrix),
-`docs/data_model.md`, `docs/architecture.md`, `docs/security_privacy.md`, `docs/testing_strategy.md`,
-`docs/runbooks.md`, `docs/decisions.md` (DEC-01…DEC-12), plus machine-readable contracts in
-`contracts/` (`openapi.yaml`, `agent_tools.json`) and seed data in `data/`.
+- [Architecture](docs/architecture.md)
+- [API reference](docs/api_spec.md)
+- [AI agent specification](docs/ai_agent_spec.md)
+- [PayPal payments](docs/payments_paypal.md)
+- [Data model & invariants](docs/data_model.md)
+- [Security & privacy](docs/security_privacy.md)
+- [Environment & local setup](docs/env_setup.md)
+- [Testing strategy](docs/testing_strategy.md)
+- [Runbooks](docs/runbooks.md)
+- [Analytics](docs/analytics_spec.md)
+- [UI flows](docs/ui_flows.md)
+- [Design system](docs/design_system.md)
 
-`WIN_PLAN.md` tracks this submission against the hackathon's judging criteria.
+## Scope
 
----
-
-## Scope & honesty notes
-
-- The store, catalogue and merchant tools are a **reference implementation** of the real thing —
-  the PayPal integration is genuine and switchable to the live sandbox API.
-- The document store ships as a JSON file so the project runs anywhere with zero setup; the Mongo
-  schema in `docs/data_model.md` is what this mirrors, and `MONGO_URI` is the documented switch.
-- The agent cannot pay. That is not a missing feature — it is the thesis.
+This is a working reference implementation, not a production marketplace. The PayPal integration is
+real and sandbox-switchable; the file store, single-instance locks and demo catalogue are deliberate
+hackathon trade-offs. The agent's inability to pay is a safety property, not a missing feature.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE).

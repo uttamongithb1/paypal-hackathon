@@ -17,7 +17,7 @@
  * The documented multi-seller flow also requires a **business** account: create the sandbox app
  * while logged in as a Business sandbox account, not an Individual one.
  *
- * Docs: ../docs/payments_paypal.md · WIN_PLAN.md §4 F1
+ * Docs: ../docs/payments_paypal.md (multi-seller settlement)
  */
 import fs from 'node:fs';
 import path from 'node:path';

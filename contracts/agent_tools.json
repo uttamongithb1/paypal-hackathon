@@ -4,7 +4,7 @@
   "title": "ShopPilot AI — Agent Tool Contract",
   "version": "1.0.0",
   "notes": [
-    "This file is the single source of truth for the LLM tool definitions. The runtime registry in apps/api/src/agent/tools/index.ts MUST be generated from (or asserted against) this file; CI fails on drift.",
+    "This file is the single source of truth for the LLM tool definitions. The runtime registry in app/server/agent/tools.mjs is asserted against this file by app/server/agent/toolBridge.mjs; tests fail on drift.",
     "Tools are grouped by side effect: read = parallel-safe and free, write = mutates state sequentially, sideEffecting = creates a draft order/holds and requires explicit user intent.",
     "No tool may create, authorise, capture or refund a payment. Money movement is a user-authenticated HTTP flow outside the agent (see docs/payments_paypal.md).",
     "All ids, session/user identity and authorisation are resolved server-side; the model never supplies userId/sessionId.",
@@ -401,7 +401,7 @@
     {
       "name": "answer_policy",
       "group": "read",
-      "description": "Return the canonical store policy text for a topic. Always use this instead of writing policy from memory. Versioned copy lives in packages/shared/src/policies.ts.",
+      "description": "Return the canonical store policy text for a topic. Always use this instead of writing policy from memory. Versioned copy lives in app/server/domain/policies.mjs.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -417,7 +417,7 @@
           "topic": { "type": "string" },
           "text": { "type": "string" },
           "updatedAt": { "type": "string", "format": "date-time" },
-          "source": { "type": "string", "const": "policies.ts" }
+          "source": { "type": "string", "const": "policies.mjs" }
         }
       },
       "errors": ["VALIDATION_ERROR"]

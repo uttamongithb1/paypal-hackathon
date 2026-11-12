@@ -1,6 +1,6 @@
 /**
  * Canonical store policy copy. The agent must answer policy questions from here (never from model
- * memory). Docs: ../docs/ai_agent_spec.md §4.9, ../prd.md §10.7
+ * memory). Docs: ../docs/ai_agent_spec.md (answer_policy)
  */
 export const POLICIES = {
   shipping: {

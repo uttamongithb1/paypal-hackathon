@@ -1,5 +1,5 @@
 {
-  "$comment": "ShopPilot AI demo catalogue. Consumed by scripts/seed.ts. Money is in USD minor units (cents). Attributes MUST conform to the parent category's attributeSchema (the seeder validates and fails on unknown keys). Product images are local SVGs under apps/web/public/products/<slug>.svg so the demo works offline.",
+  "$comment": "ShopPilot AI demo catalogue. Consumed by app/scripts/seed-lib.mjs (npm run seed / npm run reset). Money is in USD minor units (cents). Attributes MUST conform to the parent category's attributeSchema (the seeder validates and fails on unknown keys). Product images are local WebP files under app/shop/products/<slug>.webp so the demo works offline.",
   "version": "1.0.0",
   "currency": "USD",
   "taxRateBps": 825,
@@ -742,24 +742,16 @@
     }
   ],
   "demoUsers": [
-    { "email": "customer@demo.dev", "displayName": "Demo Customer", "role": "customer", "passwordTemplate": "Customer@12345", "note": "Seeded with 1 paid order and 1 abandoned cart by `pnpm seed:reset --demo-orders`." },
+    { "email": "customer@demo.dev", "displayName": "Demo Customer", "role": "customer", "passwordTemplate": "Customer@12345", "note": "Seeded with demo order history and an abandoned cart by `npm run reset`." },
     { "email": "merchant@demo.dev", "displayName": "Vertex Systems Owner", "role": "merchant", "merchantSlug": "vertex-systems", "passwordTemplate": "Merchant@12345" },
     { "email": "admin@demo.dev", "displayName": "Platform Admin", "role": "admin", "passwordTemplate": "Admin@12345" }
   ],
   "analyticsSeed": {
-    "$comment": "Synthetic events so /merchant/analytics is not empty on day one. Generated deterministically with SEED=1337 by scripts/seed.ts.",
+    "$comment": "Synthetic events so /merchant/analytics is not empty on day one. Generated deterministically by app/scripts/seed-lib.mjs.",
     "rangeDays": 30,
     "funnel": { "views": 1840, "cartAdds": 312, "checkoutAttempts": 96, "purchases": 41, "paymentFailures": 7 },
     "failureReasonMix": { "INSTRUMENT_DECLINED": 4, "INSUFFICIENT_FUNDS": 2, "CANCELED": 1 },
     "topViewedProductSlugs": ["ascent-book-14-pro", "aeropeak-aero-anc-studio", "novatech-pulse-5", "vview-27-qhd", "novabook-studio-15"],
     "notes": "Distribution follows a mild weekly curve; views cluster on the G-01 laptop set so the funnel is plausible during a demo."
-  },
-  "demoScenarios": {
-    "$comment": "Used by `pnpm demo` and the reset script to create reproducible talking points.",
-    "happyPath": { "prompt": "I need a laptop for full-stack development under $900, with at least 16 GB RAM, a 512 GB SSD and good battery life", "expectedMatches": ["ascent-book-14-pro", "ascent-book-14", "novabook-air-13", "novabook-studio-15"], "addToCart": [{ "slug": "ascent-book-14-pro", "quantity": 1 }], "expectedShippingRule": "free_over_500", "note": "Subtotal 87900 ($879) => free shipping, tax round(87900*0.0825)=7252, total 95152. Use the $429 PlayBook Go 14 or a two-item cart to exercise the $9.99 band, and the $149 Studio One for the $14.99 band." },
-    "overBudgetPrompt": "Actually make it under $700 and lighter than 1.4 kg",
-    "declineScenario": { "note": "Enable PayPal negative testing (or use the declined buyer) to force INSTRUMENT_DECLINED on capture; expect order status payment_failed and a Retry payment action." },
-    "unavailableScenario": { "note": "Set ascent-book-14-pro stock to 0 in /merchant/products while it sits in a cart; the next quote must return ITEM_UNAVAILABLE and exclude it from the total." },
-    "duplicateScenario": { "note": "Double-click Approve & Pay; exactly one order, one PayPal order and one capture must exist." }
   }
 }

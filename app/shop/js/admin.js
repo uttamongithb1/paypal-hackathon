@@ -7,7 +7,7 @@
  * - High-impact pastel KPI metric widgets (GMV, Commission Retained 5%, Net Disbursed, Multi-Seller Splits)
  * - Interactive AG Grid live table for Orders and Seller Settlements
  * - 1-click CSV exports and capture reconciliation engine (adminReconcile)
- * - Docs: docs/payments_paypal.md §3a, WIN_PLAN.md F1.
+ * - Docs: docs/payments_paypal.md (multi-seller settlement).
  */
 import {
   adminOverview, adminReconcile, money, state

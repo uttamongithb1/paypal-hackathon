@@ -492,7 +492,7 @@ export class CatalogueService {
 
   /**
    * Agent-facing search: applies hard constraints, then relaxes in a documented order and reports
-   * exactly what it relaxed. Docs: ../docs/ai_agent_spec.md §4.1, ../prd.md §10.1–10.3
+   * exactly what it relaxed. Docs: ../docs/ai_agent_spec.md (search_products)
    */
   searchForAgent({ query, categorySlug, budgetMaxMinor, filters = [], softPreferences = [], limit = 5, relaxBudgetBps = env.budgetGraceBps, includeSlightlyOverBudget = true } = {}) {
     const relaxed = [];

@@ -11,7 +11,7 @@
  * amount; the order stays in flight until every capture is refunded; revenue falls by exactly the
  * refunded share; and the verification record the storefront renders is the one the server stored.
  *
- * Docs: ../docs/payments_paypal.md §4 (V1–V8), WIN_PLAN.md F1.
+ * Docs: ../docs/payments_paypal.md (capture verification and refunds).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

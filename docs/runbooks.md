@@ -1,158 +1,150 @@
-# ShopPilot AI — Runbooks
+# Runbooks
 
-Short, executable procedures for the situations that actually happen during a demo or a support call. Each runbook states the symptom, the check, the fix, and the verification.
-
----
+Operational procedures for the shipped Express + file-store build. Commands assume `cd app` unless
+noted. The default local mode is the PayPal simulator; the hosted demo uses PayPal sandbox.
 
 ## RB-1 — Order stuck in `payment_processing`
 
-**Symptom:** the customer sees "Confirming your payment with PayPal…" for more than ~2 minutes; the merchant dashboard shows a payment attempt without a final status.
+**Symptom:** checkout says “Confirming your payment…” for more than a couple of minutes.
 
-**Why it happens:** the capture response was lost (network/timeout), or the webhook did not arrive (tunnel down, wrong `PAYPAL_WEBHOOK_ID`).
-
-**Steps**
-1. Find the order: `mongosh "$MONGODB_URI" --eval 'db.orders.find({status:"payment_processing"},{orderNumber:1,"payment":1}).pretty()'`
-2. Check what PayPal thinks:
+1. Find the order in the admin console (`/admin`) or inspect the store:
    ```bash
-   curl -s -X POST https://api-m.sandbox.paypal.com/v1/oauth2/token \
-     -u "$PAYPAL_CLIENT_ID:$PAYPAL_CLIENT_SECRET" -d 'grant_type=client_credentials' | jq -r .access_token
-   curl -s https://api-m.sandbox.paypal.com/v2/checkout/orders/<paypalOrderId> \
-     -H "Authorization: Bearer <token>" | jq '{status, purchase_units: [.purchase_units[].payments]}'
+   node -e "const d=require('./.data/db.json').data; console.log(d.orders.filter(o=>o.status==='payment_processing').map(o=>({id:o._id,n:o.orderNumber,p:o.payment})))"
    ```
-3. Run reconciliation: `pnpm job:reconcile` (or `POST /api/v1/admin/orders/{orderId}/reconcile` as admin).
-4. Inspect `webhook_events` for that order to see whether PayPal tried to notify us:
-   `db.webhook_events.find({"payload.resource.custom_id":"SP-2026-000123"}).sort({receivedAt:-1}).limit(3)`
+2. Check PayPal sandbox activity for the PayPal order id / capture id.
+3. Reconcile as admin:
+   ```http
+   POST /api/v1/admin/orders/{orderId}/reconcile
+   ```
+   or use the **Reconcile** action in the Platform Console.
+4. Inspect webhook events:
+   ```bash
+   node -e "const d=require('./.data/db.json').data; console.log(d.webhook_events.slice(-10))"
+   ```
 
-**Expected outcomes**
-* PayPal `COMPLETED` → order becomes `paid`, stock committed, receipt email/log emitted.
-* PayPal `VOIDED`/404 → order becomes `payment_failed`, holds released, customer offered **Retry payment**.
-* PayPal still `APPROVED` → safe to capture again from the checkout page: `POST /payments/{orderId}/capture` with the same `paypalOrderId` (idempotent).
+**Outcomes:** PayPal completed + verification passes → paid. Voided/missing → failed/expired and holds
+released. Still approved → capture can be retried safely. Never hand-edit `status` to `paid`.
 
-**Never** hand-edit `order.status` to `paid` in Mongo. If you must unblock a demo, use the admin reconcile endpoint so the capture id and verification flags are written correctly.
+## RB-2 — Webhook signature failures / missing headers
 
----
+**Symptom:** `webhook_signature_invalid`, `webhook_unverified`, or events stored with
+`signatureVerified:false`.
 
-## RB-2 — Webhook signature failures flood the log
+Checks:
 
-**Symptom:** `webhook_signature_invalid` lines; orders relying on webhooks stay pending.
+- `PAYPAL_WEBHOOK_ID` matches the webhook registration, not the REST app client id.
+- The registered URL is the current HTTPS origin + `/api/v1/webhooks/paypal`.
+- Local tunnels change URL; update both the URL and webhook id after restarting a tunnel.
+- Clock skew and missing PayPal transmission headers cause unverified events.
 
-**Checks**
-1. The tunnel URL changed (ngrok restarts frequently). Compare the URL registered in the PayPal sandbox app with `curl -s localhost:4040/api/tunnels | jq`.
-2. `PAYPAL_WEBHOOK_ID` must be the id of **that** webhook registration, not the app id.
-3. Clock skew > 3 minutes breaks `paypal-transmission-time` validation.
+Fix: update the sandbox webhook registration and env, restart, then make one sandbox purchase.
+Missing/invalid events are answered 200 and never applied; reconciliation is the backstop.
 
-**Fix**
-1. `ngrok http 4000` → copy the new HTTPS URL.
-2. Sandbox app → Webhooks → update the URL → copy the new Webhook ID → update `.env` → restart the API.
-3. Replay the missed window: `pnpm job:replay-webhooks --since=2h`.
-4. Verify: perform one sandbox payment; expect `webhook_events` rows with `signatureVerified: true` and `processingResult: "applied"`.
+## RB-3 — Duplicate capture / `ORDER_ALREADY_CAPTURED` / `DUPLICATE_INVOICE_ID`
 
----
+**Symptom:** shopper sees “already paid — confirming”, or support suspects a double charge.
 
-## RB-3 — Duplicate capture / "ORDER_ALREADY_CAPTURED"
+1. Confirm exactly one order owns the capture id:
+   ```bash
+   node -e "const d=require('./.data/db.json').data; const id=process.argv[1]; console.log(d.orders.filter(o=>o.payment?.paypalCaptureId===id || (o.payment?.captures||[]).some(c=>c.id===id)).map(o=>o.orderNumber))" <captureId>
+   ```
+2. Check `payment_attempts` for the order: one succeeded attempt; duplicates should be unknown/failed,
+   never a second succeeded capture.
+3. Reconcile the order as admin. `DUPLICATE_INVOICE_ID` is treated as “a prior attempt may already
+   have captured”, not as a normal payment failure.
 
-**Symptom:** a customer (or a test) sees an error after paying, or support suspects a double charge.
-
-**Checks**
-1. `db.orders.find({"payment.paypalCaptureId":"<captureId>"})` — exactly one order must own a capture id (unique index enforces this).
-2. `db.payment_attempts.find({orderId})` — expect one `succeeded` attempt; extra attempts must be `failed`/`cancelled`, never `succeeded`.
-3. Check PayPal for the capture id in the sandbox dashboard (Activity) and confirm it appears once.
-
-**Fix / interpretation**
-* If our DB is missing the capture but PayPal has it → `pnpm job:reconcile` applies `paid` from PayPal's record (PayPal is the source of truth).
-* If **two** different orders share a capture id (should be impossible) → P1: stop checkout (`FEATURE_CHECKOUT=false`), collect the requestIds, and escalate per `security_privacy.md` §11.
-* Customer-facing: a duplicate attempt on the same order is a **no-op replay** (`Idempotent-Replay: true`), so the customer is shown the paid order, not an error.
-
-**Preventive check:** `pnpm test:integration -- captureIdempotentReplay concurrentCapture doubleClickApprove`
-
----
+Invoice ids include the internal order id, so reseeding an ephemeral store does not reuse a previously
+captured PayPal invoice.
 
 ## RB-4 — Payment verified but stock could not be committed
 
-**Symptom:** attempt `succeeded`, order `payment_failed` with `failureReason: "STOCK_COMMIT_FAILED"`, alert fired.
+**Symptom:** attempt succeeded/capture exists, order `payment_failed` with
+`failureReason: STOCK_COMMIT_FAILED`.
 
-**Why:** another buyer took the last unit between hold creation and capture (hold expired, or an over-sell path).
-
-**Steps**
-1. Confirm the capture exists in PayPal and the amount matches.
-2. Set order to a clearly non-fulfillable state: `payment_failed` + `timeline` note (already written by the service).
-3. Refund the customer (admin): `POST /admin/orders/{orderId}/refund` — reason "item unavailable".
-4. Email an apology with alternatives (`docs/demo_script.md` §6 has the template language).
-5. Post-mortem: check `inventory_holds` for the order; if the hold was `released` early, inspect the expiry job logs.
-
-**Preventive:** the hold TTL (15 min) must exceed typical PayPal approval time; if demos regularly take longer, raise `QUOTE_TTL_MINUTES` deliberately and re-run the oversell test.
-
----
+1. Confirm the capture in PayPal and the order timeline.
+2. Refund through the merchant/admin refund flow (never mark paid manually).
+3. Tell the shopper the item sold out after payment and a refund is being issued.
+4. Investigate inventory holds and expiry; raise `QUOTE_TTL_MINUTES` only deliberately if approvals
+   routinely exceed the hold window.
 
 ## RB-5 — Merchant set stock to 0 with active carts/holds
 
-**Symptom:** checkout failures with `ITEM_UNAVAILABLE`; customer confusion.
+Active holds are honoured until expiry. New quotes exclude unavailable products. To clear a demo
+hold, let it expire or reset the local store. Restoring positive stock in the merchant dashboard makes
+the product purchasable again for new quotes.
 
-**Behaviour is intentional:** active holds are honoured until they expire (the merchant is told this in the UI copy: "3 units are reserved by shoppers for up to 15 minutes"). New quotes exclude the product.
+## RB-6 — Rate limits blocking a demo
 
-**Steps**
-1. Let the holds expire naturally, or force it for a demo: `db.inventory_holds.updateMany({productId: ObjectId("…"), status:"active"}, {$set:{expiresAt:new Date()}})` then `pnpm job:release-holds`.
-2. Customers with unpaid orders see the item struck through and removed from the total; no charge was made for it.
-3. If a demo needs the product back immediately, set `stock` to a positive value in `/merchant/products`.
+**Symptom:** `429 RATE_LIMITED`.
 
----
+Temporarily raise the relevant limits and restart:
 
-## RB-6 — Rate limits blocking a live demo
+```dotenv
+RATE_CHAT=200/5m
+RATE_CHECKOUT=50/5m
+RATE_PAYMENT=50/5m
+RATE_GLOBAL=2000/1m
+```
 
-**Symptom:** `429 RATE_LIMITED` during a demo when several people use one IP or one session.
+Restore normal limits after the demo. Rate limits are a security control, not a bug.
 
-**Fix (temporary):** set `RATE_CHAT=200/5m`, `RATE_CHECKOUT=50/5m`, `RATE_GLOBAL=2000/1m` in `.env`, restart the API. Announce it: rate limits are a security control — restore them after the demo and note it in the daily log.
+## RB-7 — LLM provider outage / quota / cost spike
 
----
+**Symptom:** live turns fail, 429 from the provider, or fallback labels appear.
 
-## RB-7 — LLM provider outage / cost spike
+1. For a guaranteed demo, set `FEATURE_LIVE_LLM=false` and restart. The deterministic planner uses the
+   same tools and checkout path.
+2. If staying live, check `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, provider status and quota.
+3. Watch `agent_turn_completed` logs/events for iterations, duration and profile.
+4. The UI labels fallback turns; never present a deterministic turn as live AI.
 
-**Symptom:** chat turns fail with `LLM_UNAVAILABLE`, or token counters jump.
-
-**Fix**
-1. Flip to the deterministic model for the demo: `FEATURE_LIVE_LLM=false` → restart → the fake client replays scripted turns so the shopping flow keeps working (catalogue, cart and checkout are unaffected either way).
-2. If staying live: check the provider status page, confirm `LLM_MODEL` and `LLM_BASE_URL`, lower `AGENT_MAX_TOKENS_PER_TURN`, and watch `agent_turn_completed` logs for `iterations` > 4 (a sign the prompt or tool schemas need attention).
-3. Record the incident in `docs/decisions.md` if a prompt or tool change follows.
-
----
-
-## RB-8 — Reset the demo environment
+## RB-8 — Reset the local demo environment
 
 ```bash
-pnpm seed:reset --demo-orders        # drops, reseeds 24 products, 3 merchants, demo users, demo orders, synthetic analytics
-pnpm ledger:check                    # must print zero violations
-pnpm demo                            # prints the rehearsal script with current sandbox buyers
+npm run reset          # clean store + catalogue + demo users + synthetic history/analytics
+npm run ledger         # must report zero invariant violations
+npm run verify         # full test + invariant + test-count gate
 ```
-Then open `/merchant/analytics` and confirm the funnel reads 1 840 / 312 / 96 / 41, and `/orders` shows the seeded paid order.
 
----
+Then open `/merchant` and `/admin` to confirm the dashboards are populated. Hosted Render instances
+with `SEED_ON_BOOT=true` reseed automatically when the store is empty.
 
-## RB-9 — Restore from backup
+## RB-9 — Backup / restore the file store
+
+The reference store is `app/.data/db.json` (override with `DATA_DIR`).
 
 ```bash
-mongorestore --uri="$MONGODB_URI" --archive=demo-2026-10-16.archive --drop
-pnpm db:indexes     # ensure indexes/TTLs exist after a restore
-pnpm ledger:check
-```
-Note: TTL indexes only delete on the primary's monitor cycle (~60 s), so freshly restored expired documents may linger briefly — this is expected.
+# backup (stop the server or use a quiet moment for a consistent copy)
+cp .data/db.json ../db-backup-$(date +%F).json
 
----
+# restore
+cp ../db-backup-YYYY-MM-DD.json .data/db.json
+npm run ledger
+```
+
+Do not restore a backup over a live multi-instance deployment; this build assumes a single writer.
+For durable production data, implement the reserved database driver and shared locks.
 
 ## RB-10 — Secret rotation
 
-1. **PayPal client secret:** sandbox app → rotate → update `PAYPAL_CLIENT_SECRET` → restart API → `curl /readyz` (expect `paypal: ok`) → run one sandbox purchase.
-2. **JWT secret:** add the new secret as `JWT_SECRET_NEXT`, set `JWT_SECRET_ROTATION=true` (verifies both, signs with next), wait one access-token TTL (15 min), promote next → current, restart, disable rotation. Refresh tokens remain valid because they are stored hashed in the DB, not derived from the JWT secret.
-3. **`PII_HASH_PEPPER`:** changing it invalidates `payerEmailHash` correlation. Re-hash from `payment_attempts.responseSnapshot` if correlation matters; otherwise rotate and note the cut-off date in `docs/decisions.md`.
+1. **PayPal client secret:** rotate in the sandbox app, update `PAYPAL_CLIENT_SECRET`, restart, check
+   `/api/v1/readyz`, then run `npm run paypal:check`.
+2. **JWT secret:** update `JWT_SECRET` and restart. Existing access tokens become invalid; users sign
+   in again. Refresh tokens are stored hashed and are not derived from the JWT secret.
+3. **PII pepper:** rotating `PII_HASH_PEPPER` breaks correlation with previously hashed payer emails.
+   Rotate only with a documented cut-over; do not attempt to recover raw emails from hashes.
+4. **LLM key:** rotate at the provider, update `LLM_API_KEY`, restart, verify `/api/v1/version` and a
+   live chat turn.
 
----
+Never commit `.env`, tokens, buyer passwords or logs. Rotate any credential pasted into chat/issues.
 
 ## Escalation matrix
 
-| Situation | Severity | Who | First action |
-|---|---|---|---|
-Order marked `paid` without a capture id | P1 | Eng lead | Stop checkout, reconcile, preserve logs |
-Two orders sharing a capture id | P1 | Eng lead + PayPal support | Freeze payments, export `payment_attempts` |
-Webhook signature failures | P2 | On-call | Fix tunnel/webhook id, replay events |
-Payment failure rate > 15 % | P2 | On-call | Inspect `payment_failed` reasons, check sandbox buyers |
-LLM circuit open | P3 | On-call | Switch to fake client, open a ticket |
-Analytics gaps | P3 | On-call | Check emit logs; analytics never blocks checkout |
+| Situation | Severity | First action |
+|---|---|---|
+| Order marked paid without a capture id | P1 | Stop checkout, reconcile, preserve logs |
+| Two orders sharing a capture id | P1 | Freeze payments, export attempts, escalate |
+| Webhook signature failures | P2 | Fix webhook id/URL, reconcile affected orders |
+| Payment failure rate spike | P2 | Inspect failure reasons and sandbox buyer state |
+| LLM circuit open / quota exhausted | P3 | Switch to deterministic planner |
+| Analytics gaps | P3 | Check emit logs; analytics never blocks checkout |

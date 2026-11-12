@@ -23,7 +23,7 @@ export const ORDER_TRANSITIONS = {
   awaiting_payment: ['payment_processing', 'cancelled', 'expired'],
   payment_processing: ['paid', 'payment_failed'],
   // NOTE: payment_failed must pass through payment_processing again — it can never jump to paid,
-  // which guarantees verification always runs (invariant #4 in ../AGENTS.md §4).
+  // which guarantees verification always runs (see ../docs/data_model.md and ../docs/payments_paypal.md).
   payment_failed: ['payment_processing', 'cancelled', 'expired'],
   paid: ['processing', 'refunded'],
   processing: ['shipped', 'refunded'],

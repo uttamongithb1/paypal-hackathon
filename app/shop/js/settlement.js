@@ -6,7 +6,7 @@
  * commission. When the account is not enabled for that capability the app falls back to one
  * unit — and this module says so, on screen, instead of implying a split that never happened.
  *
- * Docs: docs/payments_paypal.md · WIN_PLAN.md §4 F1
+ * Docs: docs/payments_paypal.md (multi-seller settlement)
  */
 import { h, toast } from './ui.js';
 import { money } from './api.js';

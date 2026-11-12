@@ -8,7 +8,7 @@
  *   • LiveLlmClient (FEATURE_LIVE_LLM=true) — an OpenAI-compatible tool-calling loop that shares the
  *     registry and guardrails; wiring is in runLiveTurn().
  *
- * Invariants (../AGENTS.md §4): no tool may move money, every factual claim comes from a tool result
+ * Invariants (../docs/ai_agent_spec.md): no tool may move money, every factual claim comes from a tool result
  * in the same turn, and the model never re-orders ranked products or invents products.
  */
 import { ApiError } from '../lib/errors.mjs';

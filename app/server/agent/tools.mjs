@@ -253,7 +253,7 @@ export class ToolRegistry {
   async answerPolicy(args) {
     const policy = policyFor(args.topic);
     if (!policy) throw new ApiError('VALIDATION_ERROR', `No policy stored for "${args.topic}".`);
-    return { result: { topic: args.topic, text: policy.text, updatedAt: policy.updatedAt, source: 'policies.ts' } };
+    return { result: { topic: args.topic, text: policy.text, updatedAt: policy.updatedAt, source: 'policies.mjs' } };
   }
 
   /**

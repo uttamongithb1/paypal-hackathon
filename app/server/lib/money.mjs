@@ -1,6 +1,6 @@
 /**
  * Money helpers. All money in the system is an integer number of minor units (USD cents).
- * Docs: ../prd.md §3 (money rule), ../docs/data_model.md (global rules)
+ * Docs: ../docs/data_model.md (money rules and invariants)
  */
 export function assertIntegerMinor(value, label = 'amount') {
   if (!Number.isInteger(value)) throw new Error(`${label} must be an integer in minor units, got ${value}`);
@@ -29,7 +29,7 @@ export function formatMoney(minor, currency = 'USD') {
 export const taxFor = (subtotalMinor, taxRateBps) => Math.round((subtotalMinor * taxRateBps) / 10000);
 
 /**
- * Shipping rule table — ../prd.md §5.4.1
+ * Shipping rule table — ../docs/data_model.md
  * subtotal ≥ $500 → free · $200–$500 → $9.99 · < $200 → $14.99 · oversized items add $19.99
  */
 export function shippingFor(subtotalMinor, { hasOversized = false, env }) {

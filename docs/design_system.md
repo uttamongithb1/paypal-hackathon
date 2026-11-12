@@ -39,13 +39,13 @@ the one thing on the page that should carry colour.
 | `--color-border` | `#e7e2db` | `#2e2b28` | every hairline |
 | `--color-border-strong` | `#d6d0c7` | `#423e3a` | input borders, section rules |
 | `--color-text` | `#14120f` | `#f2efe9` | body and headings |
-| `--color-text-muted` | `#7a746c` | `#a8a29a` | secondary copy |
-| `--color-text-subtle` | `#a8a29a` | `#7a746c` | metadata, placeholders |
+| `--color-text-muted` | `#6b655d` | `#a8a29a` | secondary copy |
+| `--color-text-subtle` | `#736d64` | `#948d84` | metadata, placeholders |
 | `--color-primary` | `#14120f` (ink) | `#f2efe9` (paper) | primary buttons — flips with the theme |
 | `--color-on-primary` | `#ffffff` | `#14120f` | label on a primary button |
 | `--color-accent` | `#17458f` (navy) | `#8bb0e3` | links, focus, agent identity, active tab |
 | `--color-success` | `#157347` | `#6ecf9f` | paid, in stock, capture verified |
-| `--color-warning` | `#a15c07` | `#e0b072` | low stock, payment pending, over budget |
+| `--color-warning` | `#8f5105` | `#e0b072` | low stock, payment pending, over budget |
 | `--color-danger` | `#b42318` | `#f09c94` | failed, expired, forged capture |
 | PayPal | `linear-gradient(#0070ba → #003087)` | same | **only** on the PayPal button itself |
 
@@ -104,8 +104,8 @@ which is the same decision as the photography: no runtime dependency that can fa
 [ Add to cart            (ink, full) ]
 [ Details                           ]
 ```
-- The photo tile is **1:1** and holds the fallback gradient underneath, so a missing file degrades to
-  the old art rather than a broken-image icon.
+- The photo tile is **1:1**. Product photos are vendored WebP files; if an image fails to load the
+  renderer removes the broken image rather than showing a broken-image icon or hot-linking a fallback.
 - The footer is a 2-column grid: primary action spans both columns, secondaries sit beneath. Three
   buttons in one row clipped the third at ~230px card widths.
 - In dark mode the photo tile keeps a light backdrop (brightness 0.9 on the image) so merchandise

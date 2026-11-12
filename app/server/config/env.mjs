@@ -90,7 +90,7 @@ export const env = {
   paypalClientSecret: str('PAYPAL_CLIENT_SECRET'),
   paypalEnv: str('PAYPAL_ENV', 'sandbox'),
   paypalWebhookId: str('PAYPAL_WEBHOOK_ID'),
-  // Multi-merchant settlement (docs/payments_paypal.md · WIN_PLAN F1).
+  // Multi-merchant settlement (docs/payments_paypal.md).
   //   single → one purchase unit, platform is the recipient (the historical behaviour)
   //   split  → one purchase unit per seller with `payee` (+ platform_fees when enabled)
   //   auto   → try split, fall back to single if PayPal refuses the capability, and say so

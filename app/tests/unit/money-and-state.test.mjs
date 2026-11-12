@@ -1,6 +1,6 @@
 /**
  * Pure unit tests: money maths, the order state machine and requirement/intent parsing.
- * These pin the contracts from prd.md §5.4.1 and docs/data_model.md so a refactor cannot quietly
+ * These pin the contracts from docs/data_model.md so a refactor cannot quietly
  * change what a customer is charged.
  */
 import test from 'node:test';

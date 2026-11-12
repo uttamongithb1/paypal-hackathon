@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "ShopPilot AI reference implementation — conversational shopping with grounded recommendations and a verified PayPal checkout. Implements the contracts in ../prd.md, ../docs/api_spec.md, ../docs/ai_agent_spec.md and ../docs/payments_paypal.md.",
+  "description": "ShopPilot AI reference implementation — conversational shopping with grounded recommendations and a verified PayPal checkout. See ../README.md and ../docs/.",
   "engines": {
     "node": ">=20.11"
   },
@@ -12,8 +12,6 @@
     "dev": "node --watch server/index.mjs",
     "seed": "node scripts/seed.mjs",
     "reset": "node scripts/reset.mjs",
-    "demo": "node scripts/demo.mjs",
-    "art": "node scripts/generate-product-art.mjs",
     "smoke": "node scripts/smoke.mjs",
     "test": "node scripts/run-tests.mjs",
     "test:unit": "node scripts/run-tests.mjs unit",

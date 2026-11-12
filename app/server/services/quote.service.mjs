@@ -1,7 +1,7 @@
 /**
  * Quote service: the authoritative server-side price breakdown (subtotal, shipping, tax, total),
  * with a content hash so a stale approval can never be paid.
- * Docs: ../prd.md §5.4.1, ../docs/data_model.md §2.9, ../docs/api_spec.md §5
+ * Docs: ../docs/data_model.md (quotes), ../docs/api_spec.md (checkout)
  */
 import { ApiError } from '../lib/errors.mjs';
 import { formatMoney, shippingFor, taxFor } from '../lib/money.mjs';

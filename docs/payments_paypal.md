@@ -1,322 +1,196 @@
-# ShopPilot AI — PayPal Payments Integration
+# PayPal payments integration
 
-Target: **PayPal Orders v2 REST API, sandbox**. Server-side only for anything that touches money. This document is the contract for `apps/api/src/services/paymentService.ts`.
+PayPal Orders v2, sandbox-first. Anything that touches money is server-side. The browser only renders
+PayPal's SDK and calls our API; the AI agent has no payment tool.
 
-Reference: PayPal "How to use PayPal REST APIs" (Orders v2) — `POST /v2/checkout/orders` → JS SDK approval → `POST /v2/checkout/orders/{id}/capture` → verify. Do **not** use `actions.order.create()` / `actions.order.capture()` client helpers; those are the deprecated client-side flow and cannot guarantee our amount or verification.
+Implementation:
 
----
+- `app/server/payments/paypal.gateway.mjs` — simulator + real sandbox client, payload builders,
+  webhook signature verification.
+- `app/server/payments/settlement.mjs` — pure multi-seller settlement plan + verification.
+- `app/server/services/payment.service.mjs` — the only service allowed to write `status: paid`.
+- `app/server/http/routes.mjs` — `/orders`, `/payments/*`, `/webhooks/paypal`, merchant refund,
+  admin reconcile.
 
-## 1. Sequence (happy path)
+## Modes
 
-```
-User clicks "Approve & Pay"                    (browser)
-      │
-      ▼
-POST /api/v1/orders {quoteId, quoteHash, contact}          (our API)
-  ├─ recompute quote; if hash ≠ approved → 409 QUOTE_STALE
-  ├─ create Order(status=awaiting_payment), snapshot lines, commit holds
-  ├─ PayPal-Request-Id = sha256(`pp:create:{orderId}:{attemptNo}`)
-  ├─ POST https://api-m.sandbox.paypal.com/v2/checkout/orders
-  │    { intent:"CAPTURE", purchase_units:[{ custom_id: orderNumber, invoice_id: orderNumber-orderId,
-  │      amount:{ currency_code:"USD", value:"1903.04", breakdown:{ item_total:{…},
-  │      shipping:{…}, tax_total:{…} } }, items:[…], shipping:{…} }], payment_source:{ paypal:{} } }
-  ├─ store payment.paypalOrderId; emit checkout_started
-  └─ 201 { order, payment:{ paypalOrderId, clientId, currency } }
-      │
-      ▼
-PayPal Buttons (JS SDK, sandbox client-id)          (browser)
-  createOrder → returns the paypalOrderId above
-  payer approves in PayPal
-  onApprove({orderID}) → POST /api/v1/payments/{orderId}/capture
-      │
-      ▼
-capturePayment(orderId, paypalOrderId)              (our API)
-  ├─ acquire advisory lock `payment:{orderId}` (30 s TTL)   → else 409 PAYMENT_IN_PROGRESS
-  ├─ assert order.status ∈ {awaiting_payment, payment_failed} and paypalOrderId matches
-  ├─ POST /v2/checkout/orders/{paypalOrderId}/capture  (body {})
-  ├─ verifyCapture(order, response)  ← §4 (the only path to `paid`)
-  ├─ apply: order.status=paid, stock committed, holds committed, cart→converted,
-  │         soldCount++, attempt marked succeeded, analytics payment_captured
-  └─ 200 { order, payment:{ captureId, amountVerified:true }, receipt }
-```
-
----
-
-## 2. PayPal client (`config/paypal.ts`)
-
-```ts
-const PAYPAL_BASE = env.PAYPAL_ENV === 'live'
-  ? 'https://api-m.paypal.com'
-  : 'https://api-m.sandbox.paypal.com';
-```
-| Concern | Implementation |
+| `PAYPAL_MODE` | Behaviour |
 |---|---|
-OAuth | `POST /v1/oauth2/token` (`grant_type=client_credentials`) with `client_id:secret` basic auth; cache the token in memory with a 60 s safety margin before `expires_in`; single-flight the refresh (a promise lock) so concurrent requests do not stampede. |
-HTTP | `undici`/`fetch` with `connect 3 s`, `total 10 s`, `Content-Type: application/json`, `Prefer: return=representation`. |
-Retries | Only for `429`/`5xx`/network, max 2, exponential backoff with jitter (250 ms, 750 ms), **always with the same `PayPal-Request-Id`**. Never retry a `4xx` business decline. |
-Errors | PayPal error bodies (`{ name, message, details:[{ issue, description }] }`) are mapped to internal codes (§6) and stored on the attempt as `responseSnapshot` (PII stripped). |
-Logging | Log `requestId` (ours), PayPal `debug_id`, endpoint, duration, HTTP status. Never log tokens, payer email, or the full auth header. |
-Sandbox helpers | `PAYPAL_ENV=sandbox` and a startup assertion that fails the boot if `PAYPAL_CLIENT_ID` starts with a live-style prefix while `PAYPAL_ENV=sandbox` is set inconsistently (guards against accidental live charges). |
+| `simulator` | In-process PayPal simulator. No credentials or network. Used by tests and offline demo. |
+| `sandbox` | Real PayPal sandbox (`https://api-m.sandbox.paypal.com`). Requires client id/secret. |
 
-Required scopes on the sandbox app: `https://uri.paypal.com/services/payments/payment/authcapture` (plus `.../payments/refund` if refunds are enabled later).
+`PAYPAL_API_BASE_URL` can point the real client at a local fake for contract tests. Live PayPal is not
+a demo target; production boot checks discourage accidental live credentials.
 
----
+## Happy path
 
-## 3. Create order — request builder (`buildPayPalCreateRequest`)
-
-Rules:
-1. `amount.value` must equal `order.amounts.totalMinor` formatted with **exactly 2 decimals** (`(minor/100).toFixed(2)`), and `currency_code` must be `USD`.
-2. Include the full `breakdown` — `item_total`, `tax_total`, `shipping` (omit `shipping` if 0? **No**: send `"0.00"` for explicitness) and any `discount`. PayPal rejects inconsistent breakdowns; the builder asserts `item_total + tax + shipping === value` before sending (throws `INTERNAL_AMOUNT_BUILDER` in dev, logs + alerts in prod).
-3. `items[]`: one entry per order line — `name` (≤ 127 chars, truncated), `description` (≤ 127), `unit_amount`, `quantity` (string), `category: "PHYSICAL_GOODS"`, `sku`.
-4. `purchase_units[0].custom_id` = our `orderNumber`; `invoice_id` = `orderNumber` + a unique suffix (the order's internal `_id`, e.g. `SP-2026-000123-665f1c2a9b3d4e5f6a7b8c9d`), max 127 chars. `custom_id` is how webhooks are matched back to our orders even if we lose the paypalOrderId mapping. `invoice_id` must be **globally unique per captured transaction**: PayPal rejects a capture with `DUPLICATE_INVOICE_ID` when the account has already captured that invoice id. The sequential `orderNumber` alone is unsafe on an ephemeral disk (Render free tier) — every redeploy reseeds and the counter restarts, so a new order can reuse a number a previous deployment already captured in the same PayPal account. The random `_id` suffix is the discriminator. Retries of the *same* order keep the same `invoice_id` on purpose: if a prior attempt really captured, the duplicate guard is the correct anti-double-charge behaviour and reconciliation recovers the paid state.
-5. `payment_source.paypal.experience_context` — **not** `application_context`, which PayPal has deprecated in favour of this path. A create-order that still uses the old block opens a hosted checkout page with no way back to the order, and the buyer's approval ends on "Things don't appear to be working at the moment" (`genericError`) instead of on the order.
-   - `brand_name: "ShopPilot AI"`, `locale: "en-US"`, `landing_page: "LOGIN"`, `user_action: "PAY_NOW"`.
-   - `return_url` / `cancel_url`: the origin of the request that created the order, plus `/checkout/{orderId}?from=paypal` (and `&cancelled=1` for the cancel URL). These are **required** — without them PayPal cannot hand the buyer back and the order stays unpaid.
-   - `shipping_preference: "SET_PROVIDED_ADDRESS"` when the shopper gave us a delivery address, `"GET_FROM_FILE"` otherwise (the buyer's own PayPal wallet address). If PayPal refuses our address, the create is retried once with `"GET_FROM_FILE"` and the address block removed.
-6. `purchase_units[].shipping`: the delivery address we collected (`name.full_name` + `address.address_line_1/address_line_2/admin_area_1/admin_area_2/postal_code/country_code`) on **every** unit, because a split order still ships as one parcel. Omitted entirely when there is no address.
-7. Idempotency: header `PayPal-Request-Id: pp:create:{orderId}:{attemptNo}` (≤ 108 chars, only `A–Z a–z 0–9 - _ .`; our ids are hex, safe). Deterministic ⇒ a retried create returns the same PayPal order.
-
----
-
-## 3a. Multi-seller settlement (as-built, added during the build)
-
-> **Status:** implemented in `app/server/payments/settlement.mjs` + `paypal.gateway.mjs` +
-> `payment.service.mjs`; covered by `app/tests/unit/settlement.test.mjs` and
-> `app/tests/integration/split-settlement.test.mjs`. Everything below is verified behaviour, not a plan.
-
-A ShopPilot cart can hold items from several sellers (5 of the 7 original demo orders do). Sending one
-`purchase_units[0]` with no `payee` means PayPal pays **the API caller** — the platform — and the
-sellers are silently never paid. The multi-seller flow fixes that with one order per basket:
-
-```jsonc
-// POST /v2/checkout/orders  (intent CAPTURE)
-{ "purchase_units": [
-    { "reference_id": "m1",                       // required whenever there is more than one unit
-      "custom_id": "SP-2026-000123:m1",           // orderNumber:unit — matches webhooks back to us
-      "invoice_id": "SP-2026-000123-m1-665f1c2a9b3d4e5f6a7b8c9d", // + unique order _id (DUPLICATE_INVOICE_ID guard)
-      "amount": { "currency_code": "USD", "value": "1243.80",
-                  "breakdown": { "item_total": {...}, "tax_total": {...}, "shipping": {...} } },
-      "payee": { "email_address": "vertex-systems@sandbox.demo",
-                 "merchant_id": "SANDBOXVERTEX01" },
-      "payment_instruction": {
-        "disbursement_mode": "INSTANT",           // or DELAYED (funds held until release)
-        "platform_fees": [ { "amount": { "currency_code": "USD", "value": "62.19" } } ] } },
-    { "reference_id": "m2", "payee": { ... }, "payment_instruction": { ... } } ] }
+```text
+Shopper checkout
+  → POST /api/v1/checkout/quote          (server prices, holds, quoteHash)
+  → POST /api/v1/orders                  (draft order + PayPal order create)
+  → PayPal SDK approval                  (human approves in PayPal)
+  → POST /api/v1/payments/:orderId/capture
+  → verifyCapture V1–V8
+  → applyCapture: paid, stock committed, holds committed, cart converted
 ```
 
-### Allocation is exact, never floating point
+Create order:
 
-`apportion(totalMinor, weights)` uses **largest-remainder** so `Σ shares === total` for every input
-(the unit test proves it exhaustively for amounts 0–400 × three weights 0–6). Tax and shipping are
-apportioned by the same weights as the items, so each seller's unit is a real, self-consistent order:
-`item_total + tax + shipping === value` per unit. If the parts ever failed to sum to the order total,
-`settlementPlan()` refuses to split and falls back rather than sending money it cannot reconcile.
+- `intent: CAPTURE`.
+- One `purchase_units[]` entry per settlement unit.
+- `custom_id = orderNumber` or `orderNumber:referenceId` for split units.
+- `invoice_id = orderNumber[-referenceId]-order._id` (≤127 chars). The internal order id prevents
+  `DUPLICATE_INVOICE_ID` collisions after an ephemeral-store reseed.
+- `amount.value` is integer cents formatted to two decimals; breakdown must sum exactly.
+- `payment_source.paypal.experience_context` carries brand, locale, `return_url`, `cancel_url`,
+  `user_action: PAY_NOW`, and shipping preference.
+- `PayPal-Request-Id` makes create/capture retries idempotent.
 
-`platformFeeFor(amountMinor, bps)` is rounded and **clamped to `amount - 1`** — a fee that consumed
-the whole unit would be rejected by PayPal.
+Capture:
 
-### Capture verification gains V8
+- Per-order in-process lock prevents concurrent capture.
+- The server calls PayPal capture, then verifies the **full order response** before any paid state.
+- A duplicate capture on an already-paid order is an idempotent replay, not a second charge.
+- `POST /payments/:orderId/retry` creates a new attempt on the same order when retry is allowed.
+- `GET /payments/:orderId/status` is the poll endpoint.
 
-| # | Check | Failure |
-|---|---|---|
-| V8 | For a `split` order: every planned unit is present exactly once, its `reference_id` matches the plan, `payee.email_address` is the account we intended, the capture is `COMPLETED`, and **`Σ capture.amount === order.amounts.totalMinor`** | `PAYMENT_VERIFICATION_FAILED` (`checks.settlementOk=false`), order stays unpaid, `error` logged with per-unit detail |
+## Multi-seller settlement
 
-V2 and V4 become settlement-aware for split orders (reference is matched by prefix because each unit
-carries an `-m1`-style suffix; the amount check sums every unit instead of reading unit 0). **V1–V7 are
-unchanged for single-unit orders.** Every capture is persisted at `payment.captures[]` (id, amount,
-status) alongside the primary `payment.paypalCaptureId`, so per-seller reconciliation and refunds stay
-possible.
+A basket can contain lines from several merchants. `settlementPlan()` groups lines by seller and
+apportions subtotal, tax and shipping with largest-remainder integer math so the units sum exactly to
+the order total.
 
-### The capability gate, and the honest fallback
+Each split unit carries:
 
-`payee` and `platform_fees` require the **PayPal Complete Payments Platform for Marketplaces and
-Platforms** capability (`PARTNER_FEE`); PayPal answers an unsupported account with
-`MSP_NOT_SUPPORTED` / a payment-instruction error. The documented flow also needs a **business**
-account — a self-serve *individual* sandbox app can never enable it.
+- `reference_id` (`m1`, `m2`, …) — required when there is more than one unit.
+- `payee.email_address` (and optional `merchant_id`) from a confirmed sandbox business account.
+- Optional `payment_instruction.platform_fees` for ShopPilot commission (`PLATFORM_FEE_BPS`).
+- `disbursement_mode` from `PAYPAL_DISBURSEMENT_MODE` (`INSTANT` or `DELAYED`).
 
-`PAYPAL_SETTLEMENT` decides what happens:
+Seeded `@sandbox.demo` payees are illustrative placeholders and are never used as real split
+recipients. Configure real sandbox business payees with `PAYPAL_PAYEE_<SLUG>` (for example
+`PAYPAL_PAYEE_VERTEX_SYSTEMS`) or a merchant record payee.
+
+`PAYPAL_SETTLEMENT`:
 
 | Value | Behaviour |
 |---|---|
-| `split` | build one unit per seller when every payee is confirmed; a PayPal capability rejection fails loudly (unconfirmed payees still fall back to single with a reason) |
-| `single` | one unit for the whole basket — the pre-F1 behaviour, byte for byte |
-| `auto` *(default)* | ask for a split; on a capability rejection **or an unconfirmed payee**, fall back to a single unit and record why |
+| `split` | Require split settlement; fail if it cannot be built. |
+| `single` | One purchase unit addressed to the API caller/platform. |
+| `auto` | Try split + fees, then honest fallbacks. |
 
-**Confirmed payees only.** The seeded catalogue ships illustrative `@sandbox.demo` addresses. They are
-not PayPal accounts, so `settlementPlan()` refuses to address a split unit to them: a basket with any
-placeholder payee falls back to a single unit addressed to the platform, with the reason recorded,
-*rather than creating a split order that cannot be captured*. Opt into real multi-seller settlement by
-setting `PAYPAL_PAYEE_<SLUG>` (e.g. `PAYPAL_PAYEE_VERTEX_SYSTEMS`) to a confirmed sandbox **business**
-account per seller, or by storing a real `payeeEmail` on the merchant record. This pre-flight downgrade
-is recorded exactly like a capability rejection (timeline + analytics + `reason[]`).
+`auto` fallback ladder:
 
-The fallback is never silent. It writes `payment.settlement.mode='single'` + `reason[]`, appends a
-`settlement_fallback` timeline entry, emits a `payment_settlement_fallback` analytics event, and the UI
-prints *"Paid as a single payment (not split per seller)"* with the reason. A demo that names its own
-limitation is worth more than one that implies a split that never happened.
+1. Split + platform fees.
+2. Split without fees if PayPal rejects only `platform_fees`.
+3. Single unit if payees/capability are unsupported or allocation cannot reconcile.
 
-**Seeded history is synthetic.** The boot seed writes pre-generated demo orders (`demo: true`,
-`SIMH-*` ids) with illustrative `@sandbox.demo` payees and per-seller captures so dashboards and
-refund flows have split history to render. They are not live PayPal orders. The confirmed-payee rule
-applies to live checkout: `settlementPlan()` refuses placeholder payees for new orders.
+Every downgrade is recorded on the order timeline and emitted as `payment_settlement_fallback` with a
+reason such as `payee_not_configured`, `settlement_plan`, `capability_unsupported`,
+`platform_fees_unsupported`. The UI shows the actual settlement mode; it never pretends a split
+happened.
 
-**Probe your own account before recording anything:** `npm run paypal:settlement` creates a real
-two-seller sandbox order, reads back `purchase_units[].payee`, and reports the verdict truthfully
-(it runs against the simulator too, clearly labelled as such). It exits `1` when the local plan
-cannot split because a seller still has only a placeholder payee — set `PAYPAL_PAYEE_<SLUG>` first.
+## Capture verification (V1–V8)
 
----
+`verifyCapture(order, response)` returns checks; all must pass before `applyCapture`.
 
-## 4. Capture verification (`verifyCapture`) — the safety core
+| Check | Meaning |
+|---|---|
+| V1 `statusOk` | PayPal order/capture status is completed or pending |
+| V2 `orderRefOk` | `custom_id`/`invoice_id` references this order (split units match by order-number prefix) |
+| V3 `captureExistsOk` | A capture id exists |
+| V4 `amountOk` | Captured amount equals order total; split sums every unit |
+| V5 `currencyOk` | Currency matches the order |
+| V6 `captureStatusOk` | Capture is `COMPLETED` (pending is handled separately) |
+| V7 `uniqueOk` | Capture id is not already owned by another order |
+| V8 `settlementOk` | Split order has every planned unit, exact amount, intended payee, completed capture, no extra units |
 
-```ts
-function verifyCapture(order: OrderDoc, res: PaypalCaptureResponse): VerifyResult
-```
-Checks, in order (all must pass):
+Pending captures leave the order in `payment_processing`. Verification failure never marks paid.
+`applyCapture` persists the capture(s), per-unit merchant/payee mapping, `verifyChecks`,
+`amountVerified`, payer id and hashed payer email. Stock commit failure after capture marks
+`STOCK_COMMIT_FAILED` and enters the refund/support path rather than leaving a paid order with no
+goods.
 
-| # | Check | Failure |
-|---|---|---|
-V1 | `res.status === 'COMPLETED'` | if `PENDING` → attempt `pending`, order stays `payment_processing`; otherwise `payment_failed` with `failureReason`
-V2 | `res.purchase_units?.length ≥ 1` and `res.purchase_units[0].custom_id === order.orderNumber` (or the unit's `invoice_id` matches) | `VERIFY_MISMATCH`
-V3 | capture object exists at `purchase_units[0].payments.captures[0]` | `VERIFY_MISMATCH`
-V4 | `Number(capture.amount.value) * 100 === order.amounts.totalMinor` (integer compare after rounding; guard against scientific notation) | `VERIFY_MISMATCH`
-V5 | `capture.amount.currency_code === order.amounts.currency` | `VERIFY_MISMATCH`
-V6 | `capture.status === 'COMPLETED'` | `pending`/`failed` mapping
-V7 | `capture.id` not already attached to a **different** order | `DUPLICATE_CAPTURE` → alert P1, do not mark paid
-V8 | *(as-built)* split orders: per-seller units, payees and `Σ amounts === total` all match the plan | see §3a — `PAYMENT_VERIFICATION_FAILED`, order stays unpaid
+## Webhooks
 
-On success the service writes, in a **single Mongo transaction**:
-1. `order.status = 'paid'`, `paidAt`, `payment.status='captured'`, `payment.paypalCaptureId=capture.id`, `payment.captureStatus`, `payment.amountVerified=true`, `payment.payerId`, `payment.payerEmailHash = sha256(payerEmail + PEPPER)`, `shippingAddress` (from `purchase_units[0].shipping` or `payer` when present).
-2. `attempt.status='succeeded'`, `captureId`, `verified=true`, `verifyChecks`, `responseSnapshot`.
-3. For each line: atomic `products.findOneAndUpdate({_id, stock:{$gte: qty}}, {$inc:{stock:-qty, soldCount:+qty}})`; if any line fails → abort the transaction, mark order `payment_failed` with `failureReason='STOCK_COMMIT_FAILED'`, and **queue a manual refund task** (documented, `POST /admin/orders/{id}/refund`) — the money is real, the goods are not.
-4. Holds → `committed`; cart → `converted`; `order.timeline` append; analytics `payment_captured`.
+Endpoint: `POST /api/v1/webhooks/paypal`.
 
-**Verification failures never throw into a generic 500.** They produce `409 PAYMENT_VERIFICATION_FAILED` with `details.checks`, log at `error` with `requestId` + `paypalDebugId`, and increment `payments_verify_mismatch_total`.
+- Mounted with a raw body so the exact bytes can be verified.
+- No session/CSRF; trust comes from PayPal signature verification.
+- Requires `PAYPAL_WEBHOOK_ID` and the PayPal transmission headers.
+- Calls PayPal `verify-webhook-signature`; only `SUCCESS` is trusted.
+- Missing headers, missing webhook id, invalid signature or verification errors are stored as
+  unverified and answered **200** so PayPal does not retry forever. They never change payment state.
+- Events are deduplicated by `event.id`; one in-flight pass per event id.
 
----
-
-## 5. Frontend integration (JS SDK)
-
-```ts
-// components/checkout/PayPalButtonsHost.tsx  (client-only, dynamically imported)
-const sdkUrl = `https://www.paypal.com/sdk/js?client-id=${env.NEXT_PUBLIC_PAYPAL_CLIENT_ID}` +
-               `&currency=USD&intent=capture&components=buttons&enable-funding=venmo&disable-funding=credit`;
-
-paypal.Buttons({
-  style: { layout:'vertical', shape:'pill', color:'gold', label:'paypal', height:48 },
-  createOrder: () => currentPaypalOrderId,                  // already created by OUR server
-  onApprove: async ({ orderID }) => {
-    const res = await api.capturePayment(orderId, { paypalOrderId: orderID }); // → our API
-    if (res.ok) router.replace(`/orders/${orderId}/confirmation`);
-    else handleCaptureError(res);                            // §6
-  },
-  onCancel:   () => setUiState('cancelled'),
-  onError:    (err) => { log(err); setUiState('failed'); },
-}).render('#paypal-buttons');
-```
-* The SDK is loaded **only** on the checkout route, after approval, from the official `paypal.com` origin, with `data-namespace="spPaypal"` to avoid collisions.
-* Config: `currency=USD`, `intent=capture`; `components=buttons` keeps the payload small (no card fields — card data never touches our origin).
-* `INSTRUMENT_DECLINED` handling: call `actions.restart()` so PayPal re-opens the funding-source chooser; our order is untouched.
-* If the SDK fails to load (ad-blocker/offline), show the `RetryPaymentPanel` with a plain `Try again` that re-mounts the SDK and a `Back to cart` escape.
-* Never render the button before `payment.paypalOrderId` exists, and never for an order that is already `paid`.
-
----
-
-## 6. Failure matrix (source of truth for UI states)
-
-| PayPal situation | Detection | `attempt.status` | `order.status` | HTTP + code | UI | Retry allowed |
-|---|---|---|---|---|---|---|
-Payer cancels/closes PayPal | `onCancel` (no API error) | `cancelled` | `awaiting_payment` | `200` on cancel endpoint / none | "Payment cancelled. Still reserved for mm:ss." | yes (new attempt)
-Card/bank decline | capture response `status: DECLINED` or issue `INSTRUMENT_DECLINED` | `failed` | `payment_failed` | 402 `PAYMENT_DECLINED` | decline panel + `actions.restart()` | yes
-Insufficient funds | issue `INSUFFICIENT_FUNDS` | `failed` | `payment_failed` | 402 `PAYMENT_INSUFFICIENT_FUNDS` | hint: try another funding source | yes
-eCheque / bank review | `capture.status === 'PENDING'` | `pending` | `payment_processing` | 202 `PAYMENT_PENDING` | "still processing", poll every 10 s ×12 | no (poll instead)
-Payer authentication required | `PAYER_ACTION_REQUIRED` | `awaiting_approval` | `awaiting_payment` | 409 `PAYER_ACTION_REQUIRED` | re-present the button | yes
-Order already captured (same attempt) | issue `ORDER_ALREADY_CAPTURED` + our DB already `paid` with same capture id | `succeeded` | `paid` | 200 + `Idempotent-Replay: true` | success (no double charge) | —
-Order already captured (unknown state) | same issue, our DB not `paid` | `unknown` → recon | after recon: `paid` | 409 `ORDER_ALREADY_CAPTURED` then 200 on re-poll | "Confirming…" then success | —
-Duplicate invoice id (a prior attempt really captured) | issue `DUPLICATE_INVOICE_ID` | `unknown` → recon | unchanged (not `payment_failed`) | 409 `ORDER_ALREADY_CAPTURED` | "Already paid — confirming, do not pay again" | no (recon decides)
-Capture before buyer approval | issue `ORDER_NOT_APPROVED` | `failed` | `payment_failed` | 402 `PAYER_ACTION_REQUIRED` | "Approve the payment in PayPal to finish" | yes (re-approve)
-PayPal order voided/expired | `GET /v2/checkout/orders/{id}` → `VOIDED`/404 | `failed` | `payment_failed` | 409 `PAYPAL_ORDER_INVALID` | re-create attempt (`POST /payments/{id}/retry`) | yes
-Network timeout / PayPal 5xx | fetch error / 5xx after retries | `unknown` (kept alive) | `payment_processing` | 503 `PAYMENT_PROVIDER_UNAVAILABLE` | "We'll confirm shortly", poll `/payments/{id}/status` | no (recon decides)
-Amount/currency mismatch on capture | V4/V5 fail | `failed` | `payment_failed` | 409 `PAYMENT_VERIFICATION_FAILED` | danger panel, "Reference {requestId}" | manual support
-Duplicate capture id on another order | V7 fail | `failed` | unchanged | 409 `DUPLICATE_CAPTURE` | support | no
-Hold expired before capture | order `expiresAt < now` | `failed` | `expired` | 409 `HOLD_EXPIRED` | re-checkout with fresh quote | yes (re-quote)
-Quote stale (price moved) | `quoteHash` mismatch | `failed` | `awaiting_payment` (void PayPal order) | 409 `QUOTE_STALE` | price-diff + re-approve | yes (re-quote)
-Stock commit failed after capture | transaction abort | `succeeded` + flag | `payment_failed (STOCK_COMMIT_FAILED)` | 409 | "Paid but item unavailable — we're refunding you" | support flow
-Max attempts reached (3) | attempt count | `failed` | `payment_failed` | 409 `PAYMENT_ATTEMPT_LIMIT` | support CTA, cart preserved | no
-
----
-
-## 7. Webhooks
-
-Endpoint: `POST /api/v1/webhooks/paypal` (mounted with `express.raw({type:'application/json'})` so the exact bytes are available for signature verification; no session, no CSRF, no auth).
-
-Verification steps:
-1. Read headers `paypal-transmission-id`, `paypal-transmission-time`, `paypal-cert-url`, `paypal-auth-algo`, `paypal-transmission-sig`.
-2. `POST /v1/notifications/verify-webhook-signature` with `{ auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id: env.PAYPAL_WEBHOOK_ID, webhook_event }`.
-3. Require `verification_status === 'SUCCESS'`. Otherwise: log `webhook_signature_invalid`, return `200` (so PayPal does not retry forever) but record `signatureVerified:false`.
-4. Deduplicate on `event.id` (unique index on `webhook_events`). An applied/ignored event returns `200 { deduplicated: true }`; an event whose previous pass errored may be retried (one in-flight pass per event id), so a lost capture write can still converge.
-5. Route by `event_type`:
+Handled events:
 
 | Event | Action |
 |---|---|
-`CHECKOUT.ORDER.APPROVED` | Update attempt → `approved`; **never** marks the order paid (approval ≠ capture). No side effects beyond the timeline. |
-`PAYMENT.CAPTURE.COMPLETED` | Find the order by `supplementary_data.related_ids.order_id`, the `custom_id`/`invoice_id` order-number prefix (split units carry a `:m1`/`-m1` suffix), or the capture id → if our order is not `paid`, **fetch the FULL PayPal order** (`GET /v2/checkout/orders/{id}`) and run `verifyCapture` (V1–V8) against that, then `await applyCapture` under the per-order lock. The single capture resource in the event is never trusted as the whole payment: a split order must show every planned seller unit before anything is marked paid. Idempotent; covers the "capture succeeded but our write failed" case. |
-`PAYMENT.CAPTURE.DENIED` | attempt → `failed`, order → `payment_failed` **only if** it is not already `paid` (never downgrade a paid order from a webhook). |
-`PAYMENT.CAPTURE.REFUNDED` / `REVERSED` | order → `refunded`, store refund id/amount; stock is **not** restored automatically (admin decision). |
-`PAYMENT.CAPTURE.PENDING` | attempt → `pending`; leave order in `payment_processing`. |
+| `CHECKOUT.ORDER.APPROVED` | Mark attempt approved; never marks paid |
+| `PAYMENT.CAPTURE.COMPLETED` | Fetch full PayPal order, run V1–V8, apply under lock |
+| `PAYMENT.CAPTURE.DENIED` | Fail attempt/order only if not already paid |
+| `PAYMENT.CAPTURE.PENDING` | Leave order processing |
+| `PAYMENT.CAPTURE.REFUNDED` / `REVERSED` | Record refund/reversal; stock is not auto-restored |
 
-6. Store the raw event with `signatureVerified`, `processingResult ∈ {applied, ignored, error, duplicate}` and `error` text. Errors return `200` (already stored) but raise an alert; a replay tool exists: `pnpm job:replay-webhooks --since=1h`.
+The single capture resource in a webhook is never trusted as the whole payment for a split order.
 
-Local development: `ngrok http 4000` → set the tunnel URL + `/api/v1/webhooks/paypal` in the sandbox app's Webhooks page → copy the generated **Webhook ID** into `PAYPAL_WEBHOOK_ID` (required for verification).
+## Reconciliation & expiry
 
----
+- A maintenance tick every 60s expires stale orders/holds and sweeps TTL collections.
+- A reconciliation job every 5 minutes checks stuck `payment_processing` orders against PayPal.
+- Admins can force reconciliation: `POST /api/v1/admin/orders/:orderId/reconcile`.
+- Simulator-only dev helpers (`/api/v1/dev/*`) exist for local tests and are disabled in production.
 
-## 8. Reconciliation job
+There is no separate webhook replay CLI in this build; convergence comes from PayPal retries,
+idempotent event processing and reconciliation.
 
-`apps/api/src/jobs/reconcilePayments.ts` — every 5 minutes:
-1. Orders with `status: payment_processing` and `updatedAt < now − 2 min` → `GET /v2/checkout/orders/{paypalOrderId}`.
-2. `COMPLETED` → `verifyCapture` + apply (idempotent, same function as webhooks).
-3. `VOIDED` / `PAYER_ACTION_REQUIRED` / 404 → attempt `failed`, order `payment_failed`, release holds.
-4. Attempts in `pending` older than 24 h → mark `failed` with `failureReason='TIMEOUT'` and notify.
-5. Orders in `awaiting_payment` past `expiresAt` → `expired`, holds released, PayPal order voided (`POST /v2/checkout/orders/{id}/void` — best effort).
-6. Emits metric `reconciled_orders_total{outcome}` and an audit log line per change.
+## Refunds
 
-A daily job re-checks all `paid` orders from the last 7 days for a capture id (integrity assertion I3 from `docs/data_model.md`) and alerts on any violation.
+Refunds are merchant-scoped:
 
----
+- `POST /api/v1/merchant/orders/:orderId/refund` (merchant, or admin with `?merchantId=`).
+- On a split order, a merchant refunds only the captures belonging to their seller and their amount.
+- Admin/platform refund can cover all refundable captures.
+- Already-refunded captures are skipped.
+- The PayPal refund API is called server-side; webhook confirmation is authoritative.
 
-## 9. Test plan (see `docs/testing_strategy.md` for the harness)
+## Failure mapping (UI source of truth)
 
-| Test | Type | Asserts |
-|---|---|---|
-`createOrderPayload.matchesOrder` | unit | breakdown sums, 2-decimal strings, `custom_id`, item count, quantity strings |
-`deterministicRequestId` | unit | same order+attempt → same `PayPal-Request-Id`; different attempt → different |
-`captureHappyPath` | contract (nock fixture) | order → `paid`, stock decremented, holds committed, analytics emitted |
-`captureDeclined` | contract | `payment_failed`, stock unchanged, retry allowed |
-`capturePendingThenWebhook` | contract + integration | `payment_processing` → webhook `COMPLETED` → `paid` |
-`captureIdempotentReplay` | integration | two identical capture calls → one capture id, 200 + replay header |
-`concurrentCapture` | integration | two parallel calls → exactly one PayPal capture call, other gets 409 then same final state |
-`amountMismatchBlocked` | contract | V4 failure → no `paid`, alert metric incremented |
-`webhookSignatureInvalid` | integration | stored with `signatureVerified:false`, no state change |
-`webhookDuplicate` | integration | second identical event → `deduplicated: true`, single state transition |
-`quoteStaleAtCheckout` | integration | price change between quote and approve → 409 `QUOTE_STALE`, PayPal order voided |
-`holdExpiredAtCapture` | integration | 409 `HOLD_EXPIRED`, order `expired`, no PayPal call |
-`reconRecoversPaid` | integration | simulate DB write failure, run job → order `paid` from PayPal truth |
-`doubleClickApprove` | e2e (Playwright) | one order, one PayPal order, one capture |
+| Situation | Order/attempt outcome | HTTP/code | UI |
+|---|---|---|---|
+| Decline / insufficient funds | `payment_failed` | 402 `PAYMENT_DECLINED` / `PAYMENT_INSUFFICIENT_FUNDS` | Retry with another funding source |
+| Payer action / not approved | attempt failed, order retryable | 402 `PAYER_ACTION_REQUIRED` | Approve in PayPal |
+| Cancelled | attempt cancelled, order awaiting | 200/cancel flow | Still reserved, retry |
+| Pending capture | `payment_processing` | 202 `PAYMENT_PENDING` | Poll status |
+| Already captured / duplicate invoice | unknown → reconcile; never false failed | 409 `ORDER_ALREADY_CAPTURED` | “Already paid — confirming” |
+| Provider unavailable / timeout | `payment_processing` / unknown | 503 `PAYMENT_PROVIDER_UNAVAILABLE` | We’ll confirm shortly |
+| Amount/currency/settlement mismatch | not paid | 409 `PAYMENT_VERIFICATION_FAILED` | Support reference |
+| Duplicate capture on another order | not paid | 409 `DUPLICATE_CAPTURE` | Support |
+| Hold expired | `expired` | 409 `HOLD_EXPIRED` | Re-quote |
+| Quote stale | order not created/voided | 409 `QUOTE_STALE` | Re-approve new price |
+| Stock commit failed after capture | `payment_failed` + `STOCK_COMMIT_FAILED` | 409 `ITEM_UNAVAILABLE` | Refund/support |
+| Attempt limit | `payment_failed` | 409 `PAYMENT_ATTEMPT_LIMIT` | Support |
 
-Sandbox manual checklist (run before every demo): sandbox buyer with sufficient balance; a declined-card buyer; an e-cheque buyer (pending path); webhook tunnel alive; `PAYPAL_WEBHOOK_ID` matches the current tunnel URL.
+## Manual sandbox probes
 
----
+```bash
+cd app
+npm run paypal:check                         # OAuth + create order + approval URL
+npm run paypal:check -- --capture <orderId>  # after buyer approval: capture + verify
+npm run paypal:settlement                    # multi-seller capability probe
+npm run paypal:settlement -- --capture <id>  # after approval: per-seller captures
+```
 
-## 10. Refunds (documented, not in the v1 UI)
+These create real sandbox orders. Use a Personal sandbox buyer with sufficient balance and a
+confirmed address. For webhooks, expose the local server over HTTPS and register
+`/api/v1/webhooks/paypal` in the PayPal sandbox app; copy the generated webhook id into
+`PAYPAL_WEBHOOK_ID`.
 
-`POST /api/v2/checkout/orders/{id}/capture` is irreversible from our side except via refunds: `POST /v2/payments/captures/{captureId}/refund` with `{ amount, currency_code, note_to_payer }` and `PayPal-Request-Id: pp:refund:{captureId}`. Only an admin endpoint `POST /admin/orders/{orderId}/refund` performs it; the webhook `PAYMENT.CAPTURE.REFUNDED` is the authoritative confirmation. The ops runbook scenario is: `STOCK_COMMIT_FAILED` after capture, and merchant cancellation of a paid order.
+## Compliance notes
 
----
-
-## 11. Compliance notes for the demo
-
-* No real money: sandbox only; the footer discloses it; startup asserts the sandbox base URL matches `PAYPAL_ENV`.
-* No card data: funding instruments are entered in PayPal's own hosted flow; our CSP does **not** allow script from card processors.
-* Record keeping: `webhook_events` + `payment_attempts.responseSnapshot` (PII-stripped) give an auditable trail of every state change; `orders.timeline` gives the business-readable history.
-* PII: payer email is stored only as a salted hash for support correlation; the full address is stored only if PayPal returns one and only for fulfilment.
+- Sandbox only for demos; no live keys in the repository.
+- No card data touches the app; funding instruments are entered in PayPal-hosted surfaces.
+- Payment attempts, webhook events and order timelines provide an auditable trail.
+- Payer email is stored only as a peppered hash for correlation; full shipping address is stored only
+  when needed for fulfilment.

@@ -66,18 +66,18 @@ All commands run from `app/`.
 | `npm start` | production start on `PORT` (default 4000) |
 | `npm run dev` | same, with `--watch` |
 | `npm run seed` | idempotent seed from `../data/seed.catalog.json` — catalogue, merchants, demo users, 44 orders, analytics |
-| `npm run reset` | drop the local store |
+| `npm run reset` | drop and reseed the local store to the documented demo state |
 | `npm test` | the whole suite: unit, integration and evals |
 | `npm run test:unit` / `:integration` / `:evals` | one suite |
 | `npm run verify` | tests **+** the money invariants **+** the recorded test count, in one run |
 | `npm run ledger` | the invariant report (I1–I10) against the current store |
 | `npm run test:count` | checks that the published test count matches the suite |
 | `npm run test:count:write` | re-records it after adding or removing tests |
-| `npm run smoke` | end-to-end smoke against a running server |
+| `npm run smoke` | simulator-only HTTP smoke against a running local server |
+| `npm run test:ui` | simulator-only Playwright regression against a local server |
 | `npm run paypal:check` | PayPal sandbox preflight: does OAuth authenticate? |
 | `npm run paypal:settlement` | exercises multi-seller settlement against the sandbox |
 | `npm run photos` | re-imports product photography from the dummy product API |
-| `npm run demo` | prints the demo script with the current sandbox buyer emails |
 
 ---
 
@@ -100,8 +100,8 @@ WEB_ORIGIN=http://localhost:4000    # the origin the browser loads the app from
 LOG_LEVEL=info
 
 # ── Storage ─────────────────────────────────────────────────────────────
-# The reference build ships a file-backed store that mirrors the Mongo schema
-# (app/server/store/store.mjs). It is the default and needs no service.
+# The reference build ships a file-backed JSON store (app/server/store/store.mjs).
+# It is the default and needs no service.
 DATA_DIR=.data
 # MONGO_URI is reserved: setting it makes the server refuse to boot rather than
 # pretend persistence works (app/server/store/mongo.driver.mjs).
@@ -301,7 +301,7 @@ Two interchangeable brains sit behind one contract. Both use the same closed too
   > ```
 
 * **Loop budgets** (defaults from `contracts/agent_tools.json` `limits`): `LLM_MAX_ITERATIONS=6`,
-  `LLM_PER_CALL_TIMEOUT_MS=8000`, `LLM_TURN_TIMEOUT_MS=45000`, `LLM_MAX_RETRIES=1`. The loop is
+  `LLM_PER_CALL_TIMEOUT_MS=8000`, `LLM_TURN_TIMEOUT_MS=45000`, `LLM_MAX_RETRIES=2`. The loop is
   bounded on all three axes; exceeding a budget degrades to the deterministic planner, never hangs.
 
 * **Honest labels.** `message.end.usage.profile` and the `agent_turn_completed` event report what

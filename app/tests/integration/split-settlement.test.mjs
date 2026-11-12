@@ -7,7 +7,7 @@
  * every unit's amount summing exactly to the order total, and an honest fallback when the
  * account is not enabled for multi-seller payments.
  *
- * Docs: ../docs/payments_paypal.md (multi-seller section), WIN_PLAN.md F1.
+ * Docs: ../docs/payments_paypal.md (multi-seller settlement).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
