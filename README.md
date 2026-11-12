@@ -4,7 +4,7 @@
 
 **PayPal AI Hackathon 2026 submission** · *Best Use of Agentic Commerce · Best Use of PayPal + AI · Best Use of AG Grid ($5,000)*
 
-**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 135/135 Passing (0 Failed)
+**Live Demo:** [https://paypal-hackathon.onrender.com/](https://paypal-hackathon.onrender.com/) · **Architecture & Invariant Proof:** [/how-it-works](https://paypal-hackathon.onrender.com/how-it-works) · **Tests:** 149/149 Passing (0 Failed)
 
 A shopper states a job to be done in plain language. An AI agent grounds every recommendation in a
 real catalogue, prepares a real order, and opens a real PayPal checkout — then stops.
@@ -146,8 +146,10 @@ npm run paypal:settlement -- --capture <id>  # after a buyer approves: one captu
 ```
 
 Control it with `PAYPAL_SETTLEMENT=auto|split|single` (default `auto`). `auto` asks for a split and,
-if the account cannot do it, completes the order as a single unit **and says so** in the UI, the order
-timeline and analytics — see `docs/payments_paypal.md` §3a.
+if the account cannot do it **or a seller still has only a seeded `@sandbox.demo` placeholder payee**,
+completes the order as a single unit **and says so** in the UI, the order timeline and analytics — see
+`docs/payments_paypal.md` §3a. Set `PAYPAL_PAYEE_<SLUG>` to a confirmed sandbox business account per
+seller to enable real multi-seller settlement.
 
 ---
 
@@ -267,7 +269,7 @@ docs/                 Full engineering doc set — PRD, API spec, agent spec, pa
 
 | Suite | Result |
 |---|---|
-|  `npm test` (12 suites) | **135 / 135 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
+|  `npm test` (12 suites) | **149 / 149 passing (0 failed)** across unit, integration, checkout, live agent evals, adversarial prompt injection resistance, and seed history |
 | `npm run ledger` | **All 10 invariants hold** (money math, verified capture required, stock never negative, idempotency, zero PII, Monotonic funnel) |
 | `npm run paypal:check` | **PayPal Sandbox Orders v2 API connected** (`api-m.sandbox.paypal.com`), OAuth2 + Order Creation verified |
 | `npm run paypal:settlement` | **Multi-seller split settlement probe verified** with fallback ladder |

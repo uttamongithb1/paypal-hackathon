@@ -232,18 +232,20 @@ real multi-seller demo, create one **business** sandbox account per seller and p
 environment at them (the variable name is the merchant slug in upper case, dashes as underscores):
 
 ```bash
-PAYPAL_PAYEE_VERTEX_SYSTEMS=vertex-systems@example.com
-PAYPAL_PAYEE_NOVATECH_RETAIL=novatech-retail@example.com
-PAYPAL_PAYEE_AUDIOPEAK=audiopeak@example.com
+PAYPAL_PAYEE_VERTEX_SYSTEMS=vertex-systems@business.example.com
+PAYPAL_PAYEE_NOVATECH_RETAIL=novatech-retail@business.example.com
+PAYPAL_PAYEE_AUDIOPEAK=audiopeak@business.example.com
 ```
 
-Leaving them empty is safe: the settlement falls back to a single unit and records why.
+Leaving them empty is safe: the seeded `@sandbox.demo` placeholders are refused as split recipients,
+so the settlement falls back to a single unit and records why. Set every seller's override to a real
+sandbox business account to enable multi-seller settlement.
 
 Ask your own account what it supports before recording a demo — this creates a real two-seller
 sandbox order and reads the payees straight back out of it:
 
 ```bash
-npm run paypal:settlement                     # ~5s verdict, exits 0 either way
+npm run paypal:settlement                     # ~5s verdict; exits 1 if payees/capability are missing
 npm run paypal:settlement -- --capture <id>   # after a sandbox buyer approves: per-seller captures
 ```
 

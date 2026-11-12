@@ -58,6 +58,9 @@ Money & orders
 21. `webhook: capture completed for failed write` (simulated crash) → reconciliation or webhook applies `paid` from PayPal truth.
 22. `recon job: pending order completed upstream` → converges to `paid`; `voided` upstream → `payment_failed`.
 23. `integrity: no paid order without capture id` (invariant I3) — runs over the seeded demo DB too.
+24. `webhook: split capture completed` — fetch the FULL PayPal order, run V1–V8 across every seller unit, and converge duplicate/concurrent events on one paid transition (`tests/integration/webhook-settlement.test.mjs`).
+25. `webhook: errored delivery retry / late events` — a failed processing pass is reprocessable; late `CHECKOUT.ORDER.APPROVED` / `PAYMENT.CAPTURE.PENDING` never downgrade a paid order.
+26. `settlement: placeholder payee fallback` — seeded `@sandbox.demo` payees refuse a split and fall back to a single unit with a recorded reason (`tests/unit/settlement.test.mjs`, `tests/integration/split-settlement.test.mjs`).
 
 Agent & catalogue
 24. `agent: constraints respected` for G-01, G-03, G-07, G-09 — no card outside the hard constraints.

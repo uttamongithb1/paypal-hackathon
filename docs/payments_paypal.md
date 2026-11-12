@@ -138,18 +138,32 @@ account — a self-serve *individual* sandbox app can never enable it.
 
 | Value | Behaviour |
 |---|---|
-| `split` | always build one unit per seller (fails loudly if the account cannot) |
+| `split` | build one unit per seller when every payee is confirmed; a PayPal capability rejection fails loudly (unconfirmed payees still fall back to single with a reason) |
 | `single` | one unit for the whole basket — the pre-F1 behaviour, byte for byte |
-| `auto` *(default)* | ask for a split; on a capability rejection, **fall back to a single unit and record why** |
+| `auto` *(default)* | ask for a split; on a capability rejection **or an unconfirmed payee**, fall back to a single unit and record why |
+
+**Confirmed payees only.** The seeded catalogue ships illustrative `@sandbox.demo` addresses. They are
+not PayPal accounts, so `settlementPlan()` refuses to address a split unit to them: a basket with any
+placeholder payee falls back to a single unit addressed to the platform, with the reason recorded,
+*rather than creating a split order that cannot be captured*. Opt into real multi-seller settlement by
+setting `PAYPAL_PAYEE_<SLUG>` (e.g. `PAYPAL_PAYEE_VERTEX_SYSTEMS`) to a confirmed sandbox **business**
+account per seller, or by storing a real `payeeEmail` on the merchant record. This pre-flight downgrade
+is recorded exactly like a capability rejection (timeline + analytics + `reason[]`).
 
 The fallback is never silent. It writes `payment.settlement.mode='single'` + `reason[]`, appends a
 `settlement_fallback` timeline entry, emits a `payment_settlement_fallback` analytics event, and the UI
 prints *"Paid as a single payment (not split per seller)"* with the reason. A demo that names its own
 limitation is worth more than one that implies a split that never happened.
 
+**Seeded history is synthetic.** The boot seed writes pre-generated demo orders (`demo: true`,
+`SIMH-*` ids) with illustrative `@sandbox.demo` payees and per-seller captures so dashboards and
+refund flows have split history to render. They are not live PayPal orders. The confirmed-payee rule
+applies to live checkout: `settlementPlan()` refuses placeholder payees for new orders.
+
 **Probe your own account before recording anything:** `npm run paypal:settlement` creates a real
 two-seller sandbox order, reads back `purchase_units[].payee`, and reports the verdict truthfully
-(it runs against the simulator too, clearly labelled as such).
+(it runs against the simulator too, clearly labelled as such). It exits `1` when the local plan
+cannot split because a seller still has only a placeholder payee — set `PAYPAL_PAYEE_<SLUG>` first.
 
 ---
 
@@ -238,13 +252,13 @@ Verification steps:
 1. Read headers `paypal-transmission-id`, `paypal-transmission-time`, `paypal-cert-url`, `paypal-auth-algo`, `paypal-transmission-sig`.
 2. `POST /v1/notifications/verify-webhook-signature` with `{ auth_algo, cert_url, transmission_id, transmission_sig, transmission_time, webhook_id: env.PAYPAL_WEBHOOK_ID, webhook_event }`.
 3. Require `verification_status === 'SUCCESS'`. Otherwise: log `webhook_signature_invalid`, return `200` (so PayPal does not retry forever) but record `signatureVerified:false`.
-4. Deduplicate on `event.id` (unique index on `webhook_events`) → duplicate returns `200 { deduplicated: true }`.
+4. Deduplicate on `event.id` (unique index on `webhook_events`). An applied/ignored event returns `200 { deduplicated: true }`; an event whose previous pass errored may be retried (one in-flight pass per event id), so a lost capture write can still converge.
 5. Route by `event_type`:
 
 | Event | Action |
 |---|---|
 `CHECKOUT.ORDER.APPROVED` | Update attempt → `approved`; **never** marks the order paid (approval ≠ capture). No side effects beyond the timeline. |
-`PAYMENT.CAPTURE.COMPLETED` | Find the order by `resource.custom_id`/`invoice_id` or `resource.id` (capture id) → if our order is not `paid`, run `verifyCapture` against the resource and apply (idempotent). Covers the "capture succeeded but our write failed" case. |
+`PAYMENT.CAPTURE.COMPLETED` | Find the order by `supplementary_data.related_ids.order_id`, the `custom_id`/`invoice_id` order-number prefix (split units carry a `:m1`/`-m1` suffix), or the capture id → if our order is not `paid`, **fetch the FULL PayPal order** (`GET /v2/checkout/orders/{id}`) and run `verifyCapture` (V1–V8) against that, then `await applyCapture` under the per-order lock. The single capture resource in the event is never trusted as the whole payment: a split order must show every planned seller unit before anything is marked paid. Idempotent; covers the "capture succeeded but our write failed" case. |
 `PAYMENT.CAPTURE.DENIED` | attempt → `failed`, order → `payment_failed` **only if** it is not already `paid` (never downgrade a paid order from a webhook). |
 `PAYMENT.CAPTURE.REFUNDED` / `REVERSED` | order → `refunded`, store refund id/amount; stock is **not** restored automatically (admin decision). |
 `PAYMENT.CAPTURE.PENDING` | attempt → `pending`; leave order in `payment_processing`. |

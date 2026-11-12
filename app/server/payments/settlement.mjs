@@ -13,6 +13,16 @@
  * Docs: ../docs/payments_paypal.md
  */
 
+/**
+ * The seeded catalogue ships illustrative payee addresses on the reserved `sandbox.demo` domain.
+ * They are NOT PayPal accounts and must never be addressed as the recipient of a split unit.
+ * A deployment opts into real multi-seller settlement by setting PAYPAL_PAYEE_<SLUG> to a
+ * confirmed sandbox business account (or by storing a real payeeEmail on the merchant record).
+ */
+export function isDemoPayeeEmail(email) {
+  return String(email ?? '').trim().toLowerCase().endsWith('@sandbox.demo');
+}
+
 /** Largest-remainder apportionment: split `amount` across `weights` with no money lost. */
 export function apportion(amountMinor, weights) {
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
@@ -103,15 +113,28 @@ export function settlementPlan(order, { merchants = {}, mode = 'single', platfor
     return single();
   }
 
-  // Every seller needs a resolvable payee, or PayPal would silently leave the platform as recipient.
-  // The payee email can come from the environment (a real sandbox business account for the seller)
-  // or from the merchant record. An environment address wins, so the demo can be pointed at real
-  // accounts without touching the seed.
-  const payeeOf = (record) => (record?.slug ? payeeEmails[record.slug] : null) || record?.payeeEmail || record?.email || null;
+  // Every seller needs a CONFIRMED payee, or PayPal would silently leave the platform as recipient
+  // (or refuse the capture). The payee email can come from the environment (a real sandbox business
+  // account for the seller) or from the merchant record. An environment address wins, so the demo can
+  // be pointed at real accounts without touching the seed. Seeded `@sandbox.demo` placeholders are
+  // illustrative only and are never treated as a payable account — a basket that still has one falls
+  // back to a single unit addressed to the platform, with the reason recorded, rather than creating
+  // a split order that cannot be captured.
+  const candidatePayeeOf = (record) => {
+    const override = record?.slug ? payeeEmails[record.slug] : null;
+    return String(override || record?.payeeEmail || record?.email || '').trim();
+  };
+  const payeeOf = (record) => {
+    const candidate = candidatePayeeOf(record);
+    return candidate && !isDemoPayeeEmail(candidate) ? candidate : null;
+  };
   const merchantList = [...groups.keys()].map((id) => ({ id, record: lookup.get(id) }));
   const missing = merchantList.filter(({ record }) => !payeeOf(record));
   if (missing.length) {
-    reason.push(`${missing.length} seller(s) have no payee email configured`);
+    const placeholders = merchantList.filter(({ record }) => isDemoPayeeEmail(candidatePayeeOf(record))).length;
+    reason.push(placeholders
+      ? `${missing.length} seller(s) have no confirmed payee email (${placeholders} demo placeholder(s) cannot receive funds)`
+      : `${missing.length} seller(s) have no payee email configured`);
     return single();
   }
 

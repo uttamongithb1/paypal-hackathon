@@ -17,7 +17,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, asNewCustomer, asMerchant, createClient } from '../helpers/harness.mjs';
 
-const server = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'split', PLATFORM_FEE_BPS: '500' } });
+const server = await startServer({
+  seed: 'catalogue',
+  env: {
+    PAYPAL_SETTLEMENT: 'split',
+    PLATFORM_FEE_BPS: '500',
+    PAYPAL_PAYEE_VERTEX_SYSTEMS: 'vertex@business.example.com',
+    PAYPAL_PAYEE_NOVATECH_RETAIL: 'nova@business.example.com',
+    PAYPAL_PAYEE_AUDIOPEAK: 'audio@business.example.com'
+  }
+});
 test.after(async () => {
   await server.stop();
 });

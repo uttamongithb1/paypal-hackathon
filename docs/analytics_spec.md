@@ -33,6 +33,7 @@ Owner: platform. Storage: `analytics_events` (see `docs/data_model.md` §2.13). 
 `payment_captured` | server | verified capture applied | `orderId`, `amountMinor`, `captureIdSuffix` (last 6) | `fundingSourceCategory` if returned
 `payment_failed` | server | attempt fails | `orderId`, `attemptNo`, `reason` (enum in §4) | `paypalDebugId`
 `payment_pending` | server | capture returns `PENDING` | `orderId`, `attemptNo` | `instrumentType`
+`payment_settlement_fallback` | server | multi-seller settlement downgraded: to one unit (unconfirmed/demo payee, allocation mismatch, capability rejection) or to a split without commission (`platform_fees_unsupported`) | `orderId`, `reason` (`payee_not_configured`/`settlement_plan`/`capability_unsupported`/`platform_fees_unsupported`) | —
 `payment_cancelled` | server | payer cancelled | `orderId`, `attemptNo` | —
 `order_expired` | server | hold expired before payment | `orderId`, `itemCount` | —
 `order_confirmed_viewed` | client | confirmation page loaded | `orderId`, `status` | —

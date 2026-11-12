@@ -13,16 +13,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, asNewCustomer } from '../helpers/harness.mjs';
 
-const server = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'split', PLATFORM_FEE_BPS: '500' } });
-const fallbackServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_SPLIT_UNSUPPORTED: 'true' } });
+// Split settlement is only addressed to CONFIRMED payee accounts. The seeded catalogue ships
+// `@sandbox.demo` placeholders, so these tests opt into real (test) business payees via the env
+// overrides — exactly what a deployment must do to enable multi-seller settlement.
+const PAYEE_ENV = {
+  PAYPAL_PAYEE_VERTEX_SYSTEMS: 'vertex@business.example.com',
+  PAYPAL_PAYEE_NOVATECH_RETAIL: 'nova@business.example.com',
+  PAYPAL_PAYEE_AUDIOPEAK: 'audio@business.example.com'
+};
+
+const server = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'split', PLATFORM_FEE_BPS: '500', ...PAYEE_ENV } });
+const fallbackServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_SPLIT_UNSUPPORTED: 'true', ...PAYEE_ENV } });
 const singleServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'single' } });
-const noFeeServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_FEES_UNSUPPORTED: 'true' } });
+const noFeeServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PAYPAL_SIM_FEES_UNSUPPORTED: 'true', ...PAYEE_ENV } });
+// No payee overrides: the seeded placeholders must fall back to a single unit, not a split.
+const placeholderServer = await startServer({ seed: 'catalogue', env: { PAYPAL_SETTLEMENT: 'auto', PLATFORM_FEE_BPS: '500' } });
 
 test.after(async () => {
   await server.stop();
   await fallbackServer.stop();
   await singleServer.stop();
   await noFeeServer.stop();
+  await placeholderServer.stop();
 });
 
 /**
@@ -234,4 +246,25 @@ test('when only platform_fees is refused, sellers are still paid — as a split 
   const events = fresh.body.order.timeline.map((e) => e.event);
   assert.ok(events.includes('settlement_fee_waived'), `expected settlement_fee_waived in ${events.join(', ')}`);
   assert.equal(fresh.body.order.payment.captures.length, 2, 'both sellers still get a capture');
+});
+
+test('seeded demo payees fall back to a single unit with a recorded reason, and the order still completes', async () => {
+  const client = await asNewCustomer(placeholderServer.base, 'split-placeholder');
+  await cartAcrossSellers(client);
+  const created = await placeOrder(client);
+
+  const settlement = created.body.order.payment.settlement;
+  assert.equal(settlement.mode, 'single', 'a placeholder payee must never be addressed as a split recipient');
+  assert.equal(settlement.units.length, 1);
+  assert.equal(settlement.units[0].payeeEmail, null);
+  assert.equal(settlement.units[0].amountMinor, created.body.order.amounts.totalMinor);
+  assert.ok(settlement.reason.some((r) => /payee/i.test(r) && /placeholder|demo/i.test(r)), settlement.reason.join(' | '));
+
+  const captured = await pay(client, created.body.order.id, created.body.payment);
+  assert.equal(captured.status, 200, JSON.stringify(captured.body));
+  assert.equal(captured.body.order.status, 'paid');
+
+  const fresh = await client.call(`/orders/${created.body.order.id}`);
+  const events = fresh.body.order.timeline.map((e) => e.event);
+  assert.ok(events.includes('settlement_fallback'), `expected settlement_fallback in ${events.join(', ')}`);
 });

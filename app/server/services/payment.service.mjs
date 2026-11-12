@@ -41,6 +41,7 @@ export class PaymentService {
     this.gateway = gateway;
     this.session = sessionService;
     this.locks = new Map(); // in-process advisory locks (multi-instance → Redis/DB lock)
+    this.webhookLocks = new Map(); // one in-flight processing pass per PayPal event id
   }
 
   get attempts() {
@@ -247,7 +248,19 @@ export class PaymentService {
     );
     const plan = settlementPlan(order, { merchants, mode: mode === 'auto' ? 'split' : mode, platformFeeBps: env.platformFeeBps, payeeEmails: env.paypalPayeeEmails });
 
-    if (mode === 'auto' && plan.mode === 'single') {
+    // Pre-flight downgrade (unconfirmed/demo payees, or an allocation that cannot reconcile). This
+    // is decided before any PayPal call, so it must be recorded with the same honesty as a
+    // capability rejection: timeline + analytics + the reason on the order. A single-seller cart is
+    // not a downgrade and is left alone.
+    if (mode !== 'single' && plan.mode === 'single' && plan.reasons.some((r) => !/one seller/i.test(r))) {
+      const reason = plan.reasons.join('; ');
+      this.order.timeline(order._id, 'settlement_fallback', 'system', { from: 'split', to: 'single', reason });
+      this.analytics.emit('payment_settlement_fallback', {
+        sessionId: order.sessionId,
+        userId: order.userId,
+        orderId: order._id,
+        props: { orderId: order._id, reason: /payee/i.test(reason) ? 'payee_not_configured' : 'settlement_plan' }
+      });
       logger.info('payment.settlement.single', { orderId: order._id, reason: plan.reasons });
     }
 
@@ -585,46 +598,100 @@ export class PaymentService {
   async ingestWebhook({ headers, body }) {
     const { verified } = await this.gateway.verifyWebhook({ headers, body });
     const eventId = body?.id ?? `unknown-${objectId()}`;
-    if (this.webhooks.findOne({ eventId })) {
-      return { received: true, deduplicated: true };
-    }
-    const record = this.webhooks.insert({
-      eventId,
-      type: body?.event_type,
-      resourceType: body?.resource_type,
-      orderId: body?.resource?.custom_id,
-      payload: body,
-      signatureVerified: verified,
-      processingResult: verified ? 'ignored' : 'error'
-    });
-
-    if (!verified) {
-      logger.error('webhook.signature_invalid', { eventId, type: body?.event_type });
-      return { received: true, deduplicated: false };
-    }
-
+    const existing = this.webhooks.findOne({ eventId });
+    // An applied/ignored event is never processed twice. An event whose previous pass errored may
+    // be retried by PayPal, so allow one reprocessing pass at a time (the unique eventId index plus
+    // this in-flight lock stop concurrent duplicates from applying the same capture twice).
+    if (existing && existing.processingResult !== 'error') return { received: true, deduplicated: true };
+    if (this.webhookLocks.has(eventId)) return { received: true, deduplicated: true };
+    this.webhookLocks.set(eventId, true);
     try {
-      const result = this.handleWebhookEvent(body);
-      this.webhooks.updateOne({ _id: record._id }, { processingResult: result, processedAt: new Date().toISOString() });
-    } catch (err) {
-      this.webhooks.updateOne({ _id: record._id }, { processingResult: 'error', error: err.message });
-      logger.error('webhook.handle.failed', { eventId, error: err.message });
+      let record = existing;
+      const base = {
+        eventId,
+        type: body?.event_type,
+        resourceType: body?.resource_type,
+        orderId: body?.resource?.custom_id,
+        payload: body,
+        signatureVerified: verified,
+        processingResult: verified ? 'ignored' : 'error'
+      };
+      if (!record) {
+        try {
+          record = this.webhooks.insert(base);
+        } catch (err) {
+          if (this.webhooks.findOne({ eventId })) return { received: true, deduplicated: true };
+          throw err;
+        }
+      } else {
+        record = this.webhooks.updateOne({ _id: record._id }, { ...base, error: undefined });
+      }
+
+      if (!verified) {
+        logger.error('webhook.signature_invalid', { eventId, type: body?.event_type });
+        return { received: true, deduplicated: false };
+      }
+
+      try {
+        const result = await this.handleWebhookEvent(body);
+        this.webhooks.updateOne({ _id: record._id }, { processingResult: result, processedAt: new Date().toISOString(), error: undefined });
+      } catch (err) {
+        this.webhooks.updateOne({ _id: record._id }, { processingResult: 'error', error: err.message, processedAt: new Date().toISOString() });
+        logger.error('webhook.handle.failed', { eventId, error: err.message });
+      }
+      return { received: true, deduplicated: false };
+    } finally {
+      this.webhookLocks.delete(eventId);
     }
-    return { received: true, deduplicated: false };
   }
 
-  handleWebhookEvent(body) {
+  /**
+   * Resolve the local order a webhook resource belongs to. Split capture resources carry a
+   * per-seller suffix (`SP-…:m1` / `SP-…-m1`), so match the order-number prefix; the PayPal order id
+   * in `supplementary_data.related_ids` is the strongest signal when present.
+   */
+  findWebhookOrder(resource) {
+    const relatedOrderId = resource?.supplementary_data?.related_ids?.order_id;
+    if (relatedOrderId) {
+      const byRelated = this.order.orders.findOne({ 'payment.paypalOrderId': relatedOrderId });
+      if (byRelated) return byRelated;
+    }
+    if (resource?.id) {
+      const byPaypalOrder = this.order.orders.findOne({ 'payment.paypalOrderId': resource.id });
+      if (byPaypalOrder) return byPaypalOrder;
+    }
+    const ref = String(resource?.custom_id || resource?.invoice_id || '');
+    const orderNumber = ref.split(':')[0].replace(/-m\d+$/, '');
+    if (orderNumber) {
+      const byNumber = this.order.orders.findOne({ orderNumber });
+      if (byNumber) return byNumber;
+    }
+    if (resource?.id) {
+      const byCapture = this.order.orders.findOne({ 'payment.paypalCaptureId': resource.id });
+      if (byCapture) return byCapture;
+      return this.order.orders.find({}).find((o) => (o.payment?.captures ?? []).some((c) => c.id === resource.id)) ?? null;
+    }
+    return null;
+  }
+
+  async handleWebhookEvent(body) {
     const type = body?.event_type;
     const resource = body?.resource ?? {};
-    const orderNumber = resource.custom_id ?? resource.invoice_id;
-    const order = orderNumber ? this.order.orders.findOne({ orderNumber }) : this.order.orders.findOne({ 'payment.paypalCaptureId': resource.id });
+    const order = this.findWebhookOrder(resource);
     if (!order) return 'ignored';
 
-    const attempt = this.attempts.findOne({ orderId: order._id }, { sort: { attemptNo: -1 } });
+    const attemptFor = (paypalOrderId) => this.attempts.findOne(
+      { orderId: order._id, ...(paypalOrderId ? { paypalOrderId } : {}) },
+      { sort: { attemptNo: -1 } }
+    );
 
     switch (type) {
       case 'CHECKOUT.ORDER.APPROVED': {
-        // Approval is NOT capture — never mark paid here.
+        // Approval is NOT capture — never mark paid here, and never downgrade an order that has
+        // already moved past approval (paid, refunded, or mid-capture).
+        if (![ORDER_STATUS.AWAITING_PAYMENT, ORDER_STATUS.PAYMENT_FAILED].includes(order.status)) return 'ignored';
+        if (resource.id && order.payment?.paypalOrderId && resource.id !== order.payment.paypalOrderId) return 'ignored';
+        const attempt = attemptFor(resource.id) ?? attemptFor(order.payment?.paypalOrderId);
         if (attempt) this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.APPROVED, paypalOrderStatus: 'APPROVED' });
         this.order.orders.updateOne({ _id: order._id }, { 'payment.status': PAYMENT_STATUS.APPROVED });
         this.order.timeline(order._id, 'paypal_order_approved', 'paypal');
@@ -632,29 +699,56 @@ export class PaymentService {
       }
       case 'PAYMENT.CAPTURE.COMPLETED': {
         if (order.status === ORDER_STATUS.PAID) return 'ignored';
-        const synthetic = {
-          status: 'COMPLETED',
-          purchase_units: [
-            {
-              custom_id: order.orderNumber,
-              invoice_id: order.orderNumber,
-              payments: { captures: [{ id: resource.id, status: 'COMPLETED', amount: resource.amount }] }
+        const paypalOrderId = order.payment?.paypalOrderId;
+        if (!paypalOrderId) return 'error';
+        const relatedOrderId = resource?.supplementary_data?.related_ids?.order_id;
+        if (relatedOrderId && relatedOrderId !== paypalOrderId) return 'ignored'; // stale attempt
+        try {
+          return await this.withOrderLock(order._id, async () => {
+            const current = this.order.find({ orderId: order._id });
+            if (current.status === ORDER_STATUS.PAID) return 'ignored';
+            if (![ORDER_STATUS.AWAITING_PAYMENT, ORDER_STATUS.PAYMENT_FAILED, ORDER_STATUS.PAYMENT_PROCESSING].includes(current.status)) {
+              return 'ignored';
             }
-          ],
-          payer: { email_address: resource.payer?.email_address }
-        };
-        const verification = this.verifyCapture(order, synthetic);
-        if (!verification.ok) {
-          logger.error('webhook.verify.failed', { orderId: order._id, checks: verification.checks });
-          return 'error';
+            // Verify the FULL PayPal order, not the single capture resource in the event. A split
+            // order has one capture per seller; V8 must see every planned unit before anything is
+            // marked paid. PayPal's record is the source of truth, never the webhook payload.
+            const remote = await this.gateway.getOrder(paypalOrderId);
+            if (remote?.id !== paypalOrderId) return 'error';
+            const remoteCaptures = (remote.purchase_units ?? []).flatMap((u) => u.payments?.captures ?? []);
+            if (resource.id && !remoteCaptures.some((c) => c.id === resource.id)) return 'ignored';
+            const attempt = this.attempts.findOne({ orderId: current._id, paypalOrderId }, { sort: { attemptNo: -1 } });
+            if (!attempt) return 'error';
+            const verification = this.verifyCapture(current, remote);
+            if (verification.pending) {
+              if (current.status !== ORDER_STATUS.PAYMENT_PROCESSING) {
+                this.order.transition(current._id, ORDER_STATUS.PAYMENT_PROCESSING, { actor: 'paypal', meta: { source: 'webhook', attemptNo: attempt.attemptNo } });
+              }
+              this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.PENDING, captureStatus: verification.captureStatus, paypalOrderStatus: remote.status, verified: false, verifyChecks: verification.checks });
+              this.order.orders.updateOne({ _id: current._id }, { 'payment.status': PAYMENT_STATUS.PENDING });
+              return 'applied';
+            }
+            if (!verification.ok) {
+              logger.error('webhook.verify.failed', { orderId: current._id, checks: verification.checks });
+              return 'error';
+            }
+            if (current.status !== ORDER_STATUS.PAYMENT_PROCESSING) {
+              this.order.transition(current._id, ORDER_STATUS.PAYMENT_PROCESSING, { actor: 'paypal', meta: { source: 'webhook', attemptNo: attempt.attemptNo } });
+            }
+            await this.applyCapture({ orderId: current._id, attempt, response: remote, verification, auth: null });
+            return 'applied';
+          });
+        } catch (err) {
+          // A synchronous capture holds the lock. Record an error (not "ignored") so a PayPal retry
+          // of the same event can reprocess if that capture's write was lost; if it succeeded, the
+          // retry sees a paid order and is ignored. The reconciliation job is the backstop.
+          if (err instanceof ApiError && err.code === 'PAYMENT_IN_PROGRESS') return 'error';
+          throw err;
         }
-        this.applyCapture({ orderId: order._id, attempt, response: synthetic, verification, auth: null }).catch((err) =>
-          logger.error('webhook.apply.failed', { orderId: order._id, error: err.message })
-        );
-        return 'applied';
       }
       case 'PAYMENT.CAPTURE.DENIED': {
         if (order.status === ORDER_STATUS.PAID) return 'ignored'; // never downgrade a paid order
+        const attempt = attemptFor(order.payment?.paypalOrderId);
         if (attempt) this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.FAILED, failureReason: 'INSTRUMENT_DECLINED' });
         if (order.status === ORDER_STATUS.PAYMENT_PROCESSING || order.status === ORDER_STATUS.AWAITING_PAYMENT) {
           if (order.status === ORDER_STATUS.PAYMENT_PROCESSING) this.order.transition(order._id, ORDER_STATUS.PAYMENT_FAILED, { actor: 'paypal' });
@@ -663,6 +757,10 @@ export class PaymentService {
         return 'applied';
       }
       case 'PAYMENT.CAPTURE.PENDING': {
+        if (![ORDER_STATUS.AWAITING_PAYMENT, ORDER_STATUS.PAYMENT_FAILED, ORDER_STATUS.PAYMENT_PROCESSING].includes(order.status)) return 'ignored';
+        const relatedOrderId = resource?.supplementary_data?.related_ids?.order_id;
+        if (relatedOrderId && order.payment?.paypalOrderId && relatedOrderId !== order.payment.paypalOrderId) return 'ignored';
+        const attempt = attemptFor(order.payment?.paypalOrderId);
         if (attempt) this.attempts.updateOne({ _id: attempt._id }, { status: ATTEMPT_STATUS.PENDING });
         return 'applied';
       }

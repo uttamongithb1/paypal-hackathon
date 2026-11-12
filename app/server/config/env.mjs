@@ -101,8 +101,8 @@ export const env = {
   // account behind `payee.email_address` really exists on PayPal, so a real multi-seller demo needs
   // the seller's own sandbox business account. The variable name is the merchant slug in upper case
   // with dashes as underscores: PAYPAL_PAYEE_VERTEX_SYSTEMS, PAYPAL_PAYEE_NOVATECH_RETAIL, …
-  // Leaving these empty keeps the demo placeholders, and the settlement falls back to one unit
-  // with the reason recorded on the order.
+  // Leaving these empty keeps the seeded @sandbox.demo placeholders, which are refused as split
+  // recipients: the settlement falls back to one unit with the reason recorded on the order.
   paypalPayeeEmails: {
     'vertex-systems': str('PAYPAL_PAYEE_VERTEX_SYSTEMS', ''),
     'novatech-retail': str('PAYPAL_PAYEE_NOVATECH_RETAIL', ''),

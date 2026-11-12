@@ -42,6 +42,15 @@ services:
         value: "500"
       - key: PAYPAL_DISBURSEMENT_MODE
         value: INSTANT
+      # Confirmed sandbox BUSINESS payee per seller (docs/payments_paypal.md §3a). Empty or
+      # @sandbox.demo placeholders safely fall back to a single unit with the reason recorded;
+      # set these to real sandbox business accounts to enable live multi-seller settlement.
+      - key: PAYPAL_PAYEE_VERTEX_SYSTEMS
+        sync: false
+      - key: PAYPAL_PAYEE_NOVATECH_RETAIL
+        sync: false
+      - key: PAYPAL_PAYEE_AUDIOPEAK
+        sync: false
       # Generated once by Render, never reused between services.
       - key: JWT_SECRET
         generateValue: true

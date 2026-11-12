@@ -227,7 +227,7 @@ Concurrent capture | 409 | `PAYMENT_IN_PROGRESS` | `payment_processing` | "Confi
 PayPal unreachable | 503 | `PAYMENT_PROVIDER_UNAVAILABLE` | `payment_processing` | "We'll confirm shortly" + poll `/orders/{id}` |
 ### POST `/payments/{orderId}/retry` → `201 { payment: { paypalOrderId, clientId, attemptNo:2 } }` (new attempt row; order → `awaiting_payment` if it was `payment_failed` and the quote is still valid, else `409 QUOTE_STALE` → client re-quotes).
 ### GET `/payments/{orderId}/status` → `200 { orderStatus, paymentStatus, attemptNo, captureId?, failureReason? }` — used for polling while `pending`/`processing`.
-### POST `/webhooks/paypal` (raw body; no auth, signature verified) → always `200 { received: true, deduplicated?: true }`. Handles `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.REVERSED`. See `docs/payments_paypal.md` §7.
+### POST `/webhooks/paypal` (raw body; no auth, signature verified) → always `200 { received: true, deduplicated?: true }`. Handles `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DENIED`, `PAYMENT.CAPTURE.REFUNDED`, `PAYMENT.CAPTURE.REVERSED`. `PAYMENT.CAPTURE.COMPLETED` fetches the full PayPal order and runs V1–V8 before applying (split orders require every seller unit); duplicate/concurrent events converge on one paid transition. See `docs/payments_paypal.md` §7.
 ### POST `/admin/orders/{orderId}/reconcile` *(admin)* → forces recon with PayPal; returns `{ applied: boolean, order }`.
 
 ---

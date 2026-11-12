@@ -382,6 +382,11 @@ export function seedDemoHistory(store, { products, customers, merchants = [], da
     const totalMinor = subtotalMinor + taxMinor;
     const merchantIds = [...new Set(lines.map((l) => l.merchantId))];
 
+    // Synthetic history only: these orders are pre-generated demo data (`demo: true`, `SIMH-*`
+    // PayPal ids), not live PayPal orders, so they keep illustrative `@sandbox.demo` payees and
+    // per-seller captures so the merchant dashboards/refund flows have split history to render.
+    // Live checkout never addresses those placeholders — `settlementPlan()` refuses them and falls
+    // back to a single unit (docs/payments_paypal.md §3a).
     // Split the total across merchants in proportion to their lines, giving the remainder to the
     // first unit so the units always sum to the total exactly.
     const perMerchant = new Map();

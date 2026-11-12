@@ -57,7 +57,8 @@ export const EVENT_PROPS = {
   quote_requested: { itemCount: 'number', totalMinor: 'number' },
   checkout_started: { orderId: 'string', orderNumber: 'string', itemCount: 'number', totalMinor: 'number', attemptNo: 'number', fromSurface: ['chat', 'cart', 'checkout'] },
   payment_attempted: { orderId: 'string', attemptNo: 'number', amountMinor: 'number' },
-  // Multi-seller settlement downgraded to a single unit because the account lacks the capability.
+  // Multi-seller settlement downgraded: unconfirmed/demo payee, allocation mismatch, capability
+  // rejection (single unit), or platform-fee rejection (split without commission).
   payment_settlement_fallback: { orderId: 'string', reason: 'string' },
   payment_captured: { orderId: 'string', amountMinor: 'number', captureIdSuffix: 'string' },
   payment_failed: { orderId: 'string', attemptNo: 'number', reason: FAILURE_REASONS },

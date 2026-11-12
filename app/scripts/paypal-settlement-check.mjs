@@ -81,13 +81,15 @@ if (simulated) {
 
 // ── 2. LOAD THE PAYEES THE APP WOULD USE ────────────────────────────────────
 const catalogue = JSON.parse(fs.readFileSync(path.join(here, '..', '..', 'data', 'seed.catalog.json'), 'utf8'));
-const payable = (catalogue.merchants ?? []).filter((m) => m.payeeEmail && m.paypalMerchantId);
-if (payable.length < 2) {
-  console.error('\n  Need at least two merchants with payeeEmail + paypalMerchantId in data/seed.catalog.json.\n');
+const seeded = (catalogue.merchants ?? []).slice(0, 2);
+if (seeded.length < 2) {
+  console.error('\n  Need at least two merchants in data/seed.catalog.json.\n');
   process.exit(1);
 }
 
-const merchants = Object.fromEntries(payable.slice(0, 2).map((m, i) => [`m${i + 1}`, { name: m.name, payeeEmail: m.payeeEmail, paypalMerchantId: m.paypalMerchantId }]));
+const merchants = Object.fromEntries(seeded.map((m, i) => [`m${i + 1}`, {
+  name: m.name, slug: m.slug, payeeEmail: m.payeeEmail, paypalMerchantId: m.paypalMerchantId
+}]));
 
 // A synthetic two-seller order — the same shape settlementPlan() receives in production.
 const lines = [
@@ -105,13 +107,20 @@ const order = {
   lines
 };
 
-const plan = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: env.platformFeeBps });
+const plan = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: env.platformFeeBps, payeeEmails: env.paypalPayeeEmails });
 console.log('\nStep 2 — local plan (what we would send)\n');
 line('mode', plan.mode);
 for (const unit of plan.units) {
-  line(`unit ${unit.referenceId}`, `${formatMoney(unit.amountMinor)} → ${unit.payee.emailAddress} (fee ${formatMoney(unit.platformFeeMinor)})`);
+  line(`unit ${unit.referenceId ?? 'single'}`, `${formatMoney(unit.amountMinor)} → ${unit.payee?.emailAddress ?? 'platform (single unit)'} (fee ${formatMoney(unit.platformFeeMinor)})`);
 }
 line('sum check', `${plan.units.reduce((s, u) => s + u.amountMinor, 0)} === ${order.amounts.totalMinor} total`);
+if (plan.mode !== 'split') {
+  bad(`local plan fell back to single: ${plan.reasons.join('; ')}`);
+  console.error('\n  Multi-seller settlement needs a CONFIRMED payee per seller. The seeded');
+  console.error('  @sandbox.demo placeholders are not payable accounts. Set PAYPAL_PAYEE_<SLUG>');
+  console.error('  (e.g. PAYPAL_PAYEE_VERTEX_SYSTEMS) to real sandbox BUSINESS accounts, then re-run.\n');
+  process.exit(1);
+}
 
 // ── 3. ASK PAYPAL TO CREATE IT ──────────────────────────────────────────────
 console.log('\nStep 3 — PayPal Orders v2 create with `payee` + `platform_fees`\n');
@@ -129,7 +138,7 @@ try {
   // the commission: if that works, sellers are still paid directly and only ShopPilot's cut is
   // missing — a very different (and much better) outcome than no split at all.
   if (/(platform_fee|SPLIT_SETTLEMENT_UNSUPPORTED)/i.test(`${error.originalIssue ?? ''} ${error.issue ?? ''} ${error.message ?? ''}`)) {
-    const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0 });
+    const noFee = settlementPlan(order, { merchants, mode: 'split', platformFeeBps: 0, payeeEmails: env.paypalPayeeEmails });
     try {
       created = await gateway.createOrder({ order, plan: noFee, requestId: `probe-create-nofee-${order.orderNumber}` });
       feesTaken = false;

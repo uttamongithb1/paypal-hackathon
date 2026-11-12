@@ -74,24 +74,81 @@ describe('settlementPlan', () => {
     { merchantId: 'm3', title: 'Headset', unitPriceMinor: 7999, quantity: 1, productId: 'p3' }
   ], { subtotalMinor: 102799, taxMinor: 8481, shippingMinor: 0, totalMinor: 111280 });
 
+  const twoSellerOrder = order([
+    { merchantId: 'm1', title: 'Laptop', unitPriceMinor: 64900, quantity: 1, productId: 'p1' },
+    { merchantId: 'm2', title: 'Monitor', unitPriceMinor: 29900, quantity: 1, productId: 'p2' }
+  ], { subtotalMinor: 94800, taxMinor: 7833, shippingMinor: 0, totalMinor: 102633 });
+
+  const placeholderMerchants = {
+    m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: 'vertex-systems@sandbox.demo' },
+    m2: { name: 'NovaTech Retail', slug: 'novatech-retail', payeeEmail: 'novatech-retail@sandbox.demo' }
+  };
+
   test('an environment payee address wins over the placeholder in the merchant record', () => {
-    // A seller only gets paid directly if the account behind `payee.email_address` really exists
-    // on PayPal, so the demo can be pointed at a real sandbox business account without editing
-    // the seed.
-    const merchants = {
-      m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: 'vertex-systems@sandbox.demo' },
-      m2: { name: 'NovaTech Retail', slug: 'novatech-retail', payeeEmail: 'novatech-retail@sandbox.demo' }
-    };
-    const plan = settlementPlan(
-      order([{ merchantId: 'm1', title: 'Laptop', unitPriceMinor: 64900, quantity: 1, productId: 'p1' },
-        { merchantId: 'm2', title: 'Monitor', unitPriceMinor: 29900, quantity: 1, productId: 'p2' }],
-      { subtotalMinor: 94800, taxMinor: 7833, shippingMinor: 0, totalMinor: 102633 }),
-      { merchants, mode: 'split', platformFeeBps: 500, payeeEmails: { 'vertex-systems': 'vertex@sb-real.example.com' } }
-    );
+    // A seller only gets paid directly if the account behind `payee.email_address` is a confirmed
+    // payment account, so the demo can be pointed at real sandbox business accounts without
+    // editing the seed.
+    const plan = settlementPlan(twoSellerOrder, {
+      merchants: placeholderMerchants,
+      mode: 'split',
+      platformFeeBps: 500,
+      payeeEmails: {
+        'vertex-systems': 'vertex@business.example.com',
+        'novatech-retail': 'nova@business.example.com'
+      }
+    });
     assert.equal(plan.mode, 'split');
-    assert.equal(plan.units.find((u) => u.referenceId === 'm1').payee.emailAddress, 'vertex@sb-real.example.com');
-    // A seller without an override keeps the address from the merchant record.
-    assert.equal(plan.units.find((u) => u.referenceId === 'm2').payee.emailAddress, 'novatech-retail@sandbox.demo');
+    assert.equal(plan.units.find((u) => u.referenceId === 'm1').payee.emailAddress, 'vertex@business.example.com');
+    assert.equal(plan.units.find((u) => u.referenceId === 'm2').payee.emailAddress, 'nova@business.example.com');
+  });
+
+  test('seeded demo payees fall back to one unit instead of addressing a split to placeholder accounts', () => {
+    const plan = settlementPlan(twoSellerOrder, {
+      merchants: placeholderMerchants, mode: 'split', platformFeeBps: 500, payeeEmails: {}
+    });
+    assert.equal(plan.mode, 'single');
+    assert.equal(plan.units.length, 1);
+    assert.equal(plan.units[0].amountMinor, twoSellerOrder.amounts.totalMinor);
+    assert.equal(plan.units[0].payee, null);
+    assert.match(plan.reasons.join(' '), /payee/i);
+    assert.match(plan.reasons.join(' '), /placeholder|demo/i);
+  });
+
+  test('a partially configured split falls back rather than paying one real seller and one placeholder', () => {
+    const plan = settlementPlan(twoSellerOrder, {
+      merchants: placeholderMerchants,
+      mode: 'split',
+      platformFeeBps: 500,
+      payeeEmails: { 'vertex-systems': 'vertex@business.example.com' }
+    });
+    assert.equal(plan.mode, 'single');
+    assert.match(plan.reasons.join(' '), /payee/i);
+  });
+
+  test('demo payee detection is case-insensitive and ignores surrounding whitespace', () => {
+    const plan = settlementPlan(twoSellerOrder, {
+      merchants: {
+        m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: '  VERTEX-SYSTEMS@SANDBOX.DEMO  ' },
+        m2: { name: 'NovaTech Retail', slug: 'novatech-retail', email: 'novatech-retail@sandbox.demo' }
+      },
+      mode: 'split',
+      payeeEmails: {}
+    });
+    assert.equal(plan.mode, 'single');
+    assert.match(plan.reasons.join(' '), /payee/i);
+  });
+
+  test('an explicit placeholder override is also refused', () => {
+    const plan = settlementPlan(twoSellerOrder, {
+      merchants: {
+        m1: { name: 'Vertex Systems', slug: 'vertex-systems', payeeEmail: 'vertex@business.example.com' },
+        m2: { name: 'NovaTech Retail', slug: 'novatech-retail', payeeEmail: 'nova@business.example.com' }
+      },
+      mode: 'split',
+      payeeEmails: { 'novatech-retail': 'nova@sandbox.demo' }
+    });
+    assert.equal(plan.mode, 'single');
+    assert.match(plan.reasons.join(' '), /payee/i);
   });
 
   test('a seller with no payee at all falls back to one unit, and says why', () => {

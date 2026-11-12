@@ -95,7 +95,7 @@ ShopPilot AI is constructed with a clean separation of concerns across 4 layers:
 * **Model:** Groq Cloud running `openai/gpt-oss-120b` (low-latency, tool-calling).
 * **Ledger Grid:** **AG Grid Community** powering the Platform Settlement & Reconciliation tables.
 * **Deployment:** Hosted on **Render** via infrastructure-as-code (`render.yaml`).
-* **Test Suite:** **135 automated tests** across 12 suites (unit, integration, live agent evals, and mathematical money invariants).
+* **Test Suite:** **149 automated tests** across 12 suites (unit, integration, live agent evals, and mathematical money invariants).
 
 ---
 
@@ -111,7 +111,7 @@ ShopPilot AI is constructed with a clean separation of concerns across 4 layers:
 
 ## 🏆 Accomplishments That We're Proud Of
 
-* **135 / 135 Tests Passing:** Comprehensive test suite covering everything from LLM intent extraction and adversarial prompt injection to PayPal signature validation and multi-seller refunds.
+* **149 / 149 Tests Passing:** Comprehensive test suite covering everything from LLM intent extraction and adversarial prompt injection to PayPal signature validation and multi-seller refunds.
 * **10 Immutable Money Invariants (The Invariant Report):** A continuous ledger audit verifies stock is never negative, cart subtotals always reflect live DB prices, payment attempts are strictly sequential, and no order is marked paid without capture verification.
 * **WCAG AA 100% Accessible:** 0 contrast violations across 8 page-and-theme combinations measured with axe-core.
 * **Real Sandbox Captures:** Not a mockup or client-side simulation. Real PayPal Orders v2 captures processed and verified with PayPal's live sandbox servers.
@@ -151,5 +151,5 @@ ShopPilot AI proves that **agentic commerce does not have to compromise on safet
 - [x] Live LLM Tool-Calling Loop with 14 Tools
 - [x] Interactive AG Grid Settlement & Reconciliation Dashboard
 - [x] Deployed on Render (`render.yaml`)
-- [x] 135 Automated Unit, Integration, and Eval Tests
-- [x] 2:45 Demo Video uploaded publicly on YouTube
+- [x] 149 Automated Unit, Integration, and Eval Tests
+- [ ] Demo video uploaded publicly on YouTube (public URL required on the Devpost form; not yet linked in this repo)
