@@ -157,15 +157,25 @@ export class ToolRegistry {
     return { result: { items } };
   }
 
+  /**
+   * Cart/quote owner key. MUST match the HTTP layer's cartOwner (routes.mjs): a guest's cart is
+   * keyed by session, not by the guest user's _id. Using ctx.user?._id directly for a guest (who
+   * does have an _id) created a second, user-keyed cart that GET /cart never showed, so the agent's
+   * adds silently vanished from the shopper's cart. Normalising guest → undefined keeps one cart.
+   */
+  cartOwner(ctx) {
+    return { sessionId: ctx.session._id, userId: ctx.user?.role === 'guest' ? undefined : ctx.user?._id };
+  }
+
   async viewCart(args, ctx) {
-    const cart = this.deps.cart.toDto(this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id }));
+    const cart = this.deps.cart.toDto(this.deps.cart.getOrCreate(this.cartOwner(ctx)));
     return { result: { cart }, components: [components.cartSummary({ cart })], cartUpdated: cart };
   }
 
   async quoteEstimate(args, ctx) {
-    const cart = this.deps.cart.toDto(this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id }));
+    const cart = this.deps.cart.toDto(this.deps.cart.getOrCreate(this.cartOwner(ctx)));
     if (!cart.itemCount) throw new ApiError('CART_EMPTY', 'Your cart is empty, so there is nothing to estimate yet.');
-    const cartDoc = this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const cartDoc = this.deps.cart.getOrCreate(this.cartOwner(ctx));
     const fresh = this.deps.quote.recomputeForLines(
       cart.items.filter((i) => !i.unavailable).map((i) => ({ productId: i.productId, quantity: i.quantity })),
       { excludeCartId: cartDoc._id }
@@ -188,7 +198,7 @@ export class ToolRegistry {
 
   // ── Write tools ──────────────────────────────────────────────────────────
   async addToCart(args, ctx) {
-    const { cart } = this.deps.cart.addItem({ sessionId: ctx.session._id, userId: ctx.user?._id }, {
+    const { cart } = this.deps.cart.addItem(this.cartOwner(ctx), {
       productId: args.productId,
       quantity: args.quantity,
       addedVia: 'agent'
@@ -204,21 +214,21 @@ export class ToolRegistry {
   }
 
   async updateCartItem(args, ctx) {
-    const { cart } = this.deps.cart.setQuantity({ sessionId: ctx.session._id, userId: ctx.user?._id }, args.productId, args.quantity);
+    const { cart } = this.deps.cart.setQuantity(this.cartOwner(ctx), args.productId, args.quantity);
     this.deps.analytics.emit('cart_updated', { sessionId: ctx.session._id, productId: args.productId, props: { productId: args.productId, fromQuantity: 0, toQuantity: args.quantity, surface: 'agent' } });
     return { result: { cart: { itemCount: cart.itemCount, subtotalMinor: cart.subtotalMinor, display: cart.display } }, components: [components.cartSummary({ cart })], cartUpdated: cart };
   }
 
   async removeCartItem(args, ctx) {
     if (!ctx.confirmed) return { result: { needsConfirmation: true, productId: args.productId }, requiresConfirmation: true };
-    const { cart } = this.deps.cart.removeItem({ sessionId: ctx.session._id, userId: ctx.user?._id }, args.productId);
+    const { cart } = this.deps.cart.removeItem(this.cartOwner(ctx), args.productId);
     this.deps.analytics.emit('cart_item_removed', { sessionId: ctx.session._id, productId: args.productId, props: { productId: args.productId, quantity: 1, surface: 'agent' } });
     return { result: { removed: { productId: args.productId }, cart: { itemCount: cart.itemCount, subtotalMinor: cart.subtotalMinor, display: cart.display } }, components: [components.cartSummary({ cart })], cartUpdated: cart };
   }
 
   async clearCart(args, ctx) {
     if (!ctx.confirmed) return { result: { needsConfirmation: true }, requiresConfirmation: true };
-    const { cart } = this.deps.cart.clear({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const { cart } = this.deps.cart.clear(this.cartOwner(ctx));
     return { result: { removedLines: 0, cart }, components: [components.cartSummary({ cart })], cartUpdated: cart };
   }
 
@@ -228,7 +238,7 @@ export class ToolRegistry {
    */
   async prepareCheckout(args, ctx) {
     if (!args.confirm) return { result: { needsConfirmation: true } };
-    const { quote } = this.deps.quote.create({ sessionId: ctx.session._id, userId: ctx.user?._id, extendHolds: true });
+    const { quote } = this.deps.quote.create({ ...this.cartOwner(ctx), extendHolds: true });
     const order = await this.deps.order.createFromQuote({
       quoteId: quote.id,
       quoteHash: quote.hash,

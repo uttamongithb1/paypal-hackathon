@@ -283,9 +283,17 @@ export function openAuth({ message, onSuccess, requireLogin = false } = {}) {
       updateNavForRole();
       await restoreConversation();
       if (onSuccess) {
+        // A context-specific sign-in (e.g. completing checkout) resumes that action, not a redirect.
         await onSuccess(state.user);
       } else {
-        await route();
+        // Land each role on its home surface: a merchant goes straight to the Merchant dashboard
+        // and an admin to the Platform Console, so the relevant panel is visible immediately after
+        // sign-in instead of leaving them on the catalogue with only a new nav link. Shoppers stay
+        // where they were. `replace` keeps the back button from returning to a pre-login state.
+        const role = state.user?.role;
+        if (role === 'merchant') navigate('/merchant', { replace: true });
+        else if (role === 'admin') navigate('/admin', { replace: true });
+        else await route();
       }
     } catch (authError) {
       error.replaceChildren(h('div', { class: 'callout callout--danger', text: `${authError.message} (${authError.code})` }));

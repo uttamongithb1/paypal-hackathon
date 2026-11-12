@@ -708,7 +708,7 @@ export class Orchestrator {
 
   planRemove(message, ctx) {
     const ids = ctx.session.chat?.lastCandidateProductIds ?? [];
-    const cartDoc = this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const cartDoc = this.deps.cart.getOrCreate(this.deps.tools.cartOwner(ctx));
     const cart = this.deps.cart.toDto(cartDoc);
     const cartProductIds = cart.items.map((i) => i.productId);
     const mentioned = resolveProductReference(message, cartProductIds, this.deps);
@@ -735,7 +735,7 @@ export class Orchestrator {
   }
 
   planClear(ctx) {
-    const cartDoc = this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const cartDoc = this.deps.cart.getOrCreate(this.deps.tools.cartOwner(ctx));
     const cart = this.deps.cart.toDto(cartDoc);
     if (!cart.itemCount) {
       const text = 'Your cart is already empty, so there is nothing to remove.';
@@ -749,7 +749,7 @@ export class Orchestrator {
   }
 
   planQuantity(message, ctx) {
-    const cartDoc = this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const cartDoc = this.deps.cart.getOrCreate(this.deps.tools.cartOwner(ctx));
     const cart = this.deps.cart.toDto(cartDoc);
     if (!cart.itemCount) {
       const text = 'Your cart is empty — tell me what to add first.';
@@ -893,7 +893,7 @@ export class Orchestrator {
         'I cannot pay on your behalf — by design, the agent has no access to payment. Your cart is ready: press "Approve & Pay" on the checkout page, then authorise the payment in PayPal. I will keep the order review open for 15 minutes.';
       return { steps: [], text, compose: () => text, quickReplies: () => ['Show my cart', 'Compare the top 2'] };
     }
-    const cartDoc = this.deps.cart.getOrCreate({ sessionId: ctx.session._id, userId: ctx.user?._id });
+    const cartDoc = this.deps.cart.getOrCreate(this.deps.tools.cartOwner(ctx));
     const cart = this.deps.cart.toDto(cartDoc);
     if (!cart.itemCount) {
       const text = 'Your cart is empty, so there is nothing to check out yet. Tell me what you need and I will find options.';

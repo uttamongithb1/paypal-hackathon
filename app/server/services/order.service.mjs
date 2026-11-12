@@ -32,7 +32,11 @@ export class OrderService {
     if (!quoteDoc) throw new ApiError('QUOTE_STALE', 'That quote has expired. Review your cart and try again.');
     if (quoteDoc.sessionId !== auth.session._id) throw new ApiError('FORBIDDEN', 'That quote belongs to another session.');
 
-    const ownerCart = this.cart.getOrCreate({ sessionId: auth.session._id, userId: auth.user._id });
+    // Match the cart/quote owner key (HTTP cartOwner + agent cartOwner): a guest's cart is keyed by
+    // session, not the guest user's _id. Looking up a user-keyed cart here would miss the session
+    // cart that actually holds the stock, so the availability recheck would not exclude this
+    // checkout's own holds and claimForOrder would claim from an empty cart.
+    const ownerCart = this.cart.getOrCreate({ sessionId: auth.session._id, userId: auth.user.role === 'guest' ? undefined : auth.user._id });
     // The holds backing this quote belong to this cart — excluding them is what stops a valid
     // checkout from reporting its own reservation as OUT_OF_STOCK.
     const fresh = this.quote.recomputeForLines(quoteDoc.lines, { excludeCartId: ownerCart._id, excludeOrderId: quoteDoc.orderId ?? null });
