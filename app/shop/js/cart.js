@@ -144,30 +144,42 @@ export async function renderCart() {
     // delivery address is carried across rather than wiped.
     const addressDraft = readAddressForm(document);
     const isGuest = !state.user?.email || state.user?.role === 'guest';
-    const guestEmailField = isGuest
-      ? h('div', { class: 'field', style: 'margin-bottom: 0.75rem; text-align: left;' }, [
-          h('label', { for: 'cart-guest-email', class: 'label', text: 'Email for receipt & order status' }),
-          h('input', {
-            id: 'cart-guest-email',
-            type: 'email',
-            class: 'input',
-            placeholder: 'guest@demo.dev',
-            value: localStorage.getItem('shoppilot_guest_email') || 'shopper@demo.dev'
-          })
+    const guestNotice = isGuest
+      ? h('div', { class: 'callout callout--warning', style: 'margin-bottom: 0.75rem; text-align: left;' }, [
+          h('strong', { text: '🔒 Sign in required to buy' }),
+          h('p', { class: 'note', text: 'You must be signed in to purchase items. Click below to sign in with the 1-click Demo Shopper account.' })
         ])
       : null;
 
     foot.replaceChildren(
       amountBreakdown({ subtotalMinor: cart.subtotalMinor, shippingMinor: 0, taxMinor: 0, totalMinor: cart.subtotalMinor, display: { subtotal: cart.display, shipping: '—', tax: '—', total: cart.display } }),
       h('p', { class: 'note', text: 'Shipping and tax are computed server-side at checkout — the agent never guesses them.' }),
-      guestEmailField,
+      guestNotice,
       deliveryAddressField(addressDraft),
       h('button', {
         class: 'btn btn--primary btn--block',
         type: 'button',
-        text: blocked ? 'Remove unavailable items to continue' : 'Review & pay',
+        text: blocked
+          ? 'Remove unavailable items to continue'
+          : isGuest
+            ? 'Sign in to buy →'
+            : 'Review & pay',
         disabled: blocked,
-        onclick: () => reviewAndPay()
+        onclick: async () => {
+          if (isGuest) {
+            const { openAuth } = await import('./app.js');
+            openAuth({
+              message: 'Sign in to complete your purchase. Click "⚡ Instant Sign In as Demo Shopper" below.',
+              requireLogin: true,
+              onSuccess: async () => {
+                await renderCart();
+              }
+            });
+            toast('Please sign in to buy', { tone: 'default' });
+            return;
+          }
+          reviewAndPay();
+        }
       }),
       h('button', {
         class: 'btn btn--ghost btn--block',
@@ -190,6 +202,20 @@ export async function renderCart() {
  * Only a human click on the checkout page can start a PayPal payment.
  */
 export async function reviewAndPay() {
+  const isGuest = !state.user?.email || state.user?.role === 'guest';
+  if (isGuest) {
+    const { openAuth } = await import('./app.js');
+    openAuth({
+      message: 'Sign in to complete your purchase. Click "⚡ Instant Sign In as Demo Shopper" below.',
+      requireLogin: true,
+      onSuccess: async () => {
+        await renderCart();
+        reviewAndPay();
+      }
+    });
+    toast('Please sign in to buy', { tone: 'default' });
+    return;
+  }
   const button = $('#cart-foot .btn--primary');
   if (button) {
     button.disabled = true;

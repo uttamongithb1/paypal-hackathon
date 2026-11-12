@@ -201,7 +201,10 @@ export const cancelOrder = (orderId, reason = 'customer_cancelled') =>
 export const capturePayment = (orderId, { paypalOrderId, simulatedOutcome } = {}) =>
   api(`/payments/${orderId}/capture`, {
     method: 'POST',
-    body: { paypalOrderId, simulatedOutcome },
+    body: {
+      paypalOrderId,
+      ...(simulatedOutcome ? { simulatedOutcome } : {})
+    },
     idempotencyKey: `capture-${orderId}-${paypalOrderId ?? 'sim'}`
   });
 export const retryPayment = (orderId) => api(`/payments/${orderId}/retry`, { method: 'POST' });

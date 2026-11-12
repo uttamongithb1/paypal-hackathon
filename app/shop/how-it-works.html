@@ -115,7 +115,7 @@
     /* Four nav links plus the wordmark do not fit a 390px row; drop the ones the shop header
        already offers on every page and keep the two that matter here. */
     .bar nav { font-size: 13px; gap: 12px; margin-left: 0; flex: 1 1 100%; height: 38px; align-items: center; border-top: 1px solid var(--border); }
-    .bar nav a[href="/orders"], .bar nav a[href="/merchant"] { display: none; }
+    .bar nav a[href="/orders"] { display: none; }
     /* The tool table is wider than a phone. Let it scroll inside its own box rather than
        stretching the document to 452px. */
     .tools { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -133,7 +133,6 @@
     <a href="/">Shop</a>
     <a href="/catalogue">Catalogue</a>
     <a href="/orders">Orders</a>
-    <a href="/merchant">Merchant</a>
   </nav>
 </header>
 

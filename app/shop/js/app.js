@@ -44,15 +44,16 @@ export function updateNavForRole() {
   const footAdminLink = $('#foot-admin-link');
 
   if (merchantNav) {
-    // Hide merchant nav for standard shoppers/customers
-    merchantNav.hidden = role === 'customer';
+    // Merchant nav is visible only when merchant or admin is logged in
+    merchantNav.hidden = !(role === 'merchant' || role === 'admin');
   }
   if (adminNav) {
-    // Admin nav is STRICTLY hidden for merchants and shoppers! Only admins (and unauthenticated guests) can see it
-    adminNav.hidden = role === 'merchant' || role === 'customer';
+    // Platform Console nav is visible only when platform admin is logged in
+    adminNav.hidden = role !== 'admin';
   }
   if (footAdminLink) {
-    footAdminLink.hidden = role === 'merchant' || role === 'customer';
+    // Platform Console footer link is visible only when platform admin is logged in
+    footAdminLink.hidden = role !== 'admin';
   }
 }
 
@@ -115,7 +116,7 @@ const navigate = (href, { replace = false } = {}) => {
 };
 
 /* ── Auth modal ─────────────────────────────────────────────────────────── */
-function openAuth() {
+export function openAuth({ message, onSuccess, requireLogin = false } = {}) {
   if (state.user && state.user.role !== 'guest') {
     openModal({ title: 'Your account', body: h('div', { class: 'stack' }, [
       h('strong', { text: state.user.email }),
@@ -124,7 +125,18 @@ function openAuth() {
       h('button', { class: 'btn btn--secondary', text: 'Keep shopping', onclick: closeModal }),
       h('button', { class: 'btn btn--primary', text: 'Sign out', onclick: async (event) => {
         event.currentTarget.disabled = true;
-        try { await signOut(); closeModal(); updateNavForRole(); await restoreConversation(); await route(); toast('Signed out. You can keep shopping as a guest.'); }
+        try {
+          await signOut();
+          closeModal();
+          updateNavForRole();
+          await restoreConversation();
+          if (['/merchant', '/admin'].includes(location.pathname.replace(/\/+$/, '') || '/')) {
+            navigate('/', { replace: true });
+          } else {
+            await route();
+          }
+          toast('Signed out. You can keep shopping as a guest.');
+        }
         catch (error) { event.currentTarget.disabled = false; toast(error.message, { tone: 'danger' }); }
       } })
     ] });
@@ -134,47 +146,119 @@ function openAuth() {
   const password = h('input', { type: 'password', placeholder: 'Password', id: 'auth-password', autocomplete: 'current-password', required: true, minlength: '8' });
   const error = h('div', {});
 
+  const notice = message
+    ? h('div', { class: 'callout callout--warning', style: 'margin-bottom: 6px;' }, [
+        h('strong', { text: '🔒 Sign in required to buy' }),
+        h('p', { class: 'note', text: message })
+      ])
+    : null;
+
   const demoRoles = [
-    { label: '🛍️ Shopper', email: 'customer@demo.dev', pass: 'Customer@12345', hint: 'customer@demo.dev' },
-    { label: '🏪 Merchant', email: 'merchant@demo.dev', pass: 'Merchant@12345', hint: 'merchant@demo.dev' },
-    { label: '⚙️ Admin', email: 'admin@demo.dev', pass: 'Admin@12345', hint: 'admin@demo.dev' }
+    {
+      role: 'Shopper',
+      icon: '🛍️',
+      title: 'Shopper Account',
+      email: 'customer@demo.dev',
+      pass: 'Customer@12345',
+      desc: 'Buy products & view order history',
+      tone: 'primary'
+    },
+    {
+      role: 'Merchant',
+      icon: '🏪',
+      title: 'Merchant Account',
+      email: 'merchant@demo.dev',
+      pass: 'Merchant@12345',
+      desc: 'Vertex Systems seller portal & analytics',
+      tone: 'secondary'
+    },
+    {
+      role: 'Admin',
+      icon: '⚙️',
+      title: 'Platform Admin',
+      email: 'admin@demo.dev',
+      pass: 'Admin@12345',
+      desc: 'AG Grid console, platform fees & audit',
+      tone: 'secondary'
+    }
   ];
 
-  const roleButtons = demoRoles.map(role =>
-    h('button', {
-      class: 'btn btn--secondary btn--sm',
-      type: 'button',
-      text: role.label,
-      title: `Click to fill credentials for ${role.hint}`,
-      style: { flex: '1 1 0', padding: '6px 8px', fontSize: '12px' },
-      onclick: () => {
-        email.value = role.email;
-        password.value = role.pass;
-        error.replaceChildren();
-        toast(`Filled credentials for ${role.label}`, { tone: 'default' });
+  const roleCards = demoRoles.map(role =>
+    h('div', {
+      class: 'card',
+      style: {
+        padding: '10px 12px',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: '8px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px'
       }
-    })
+    }, [
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+        h('strong', { style: { fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }, text: `${role.icon} ${role.title}` }),
+        h('span', { class: 'note', style: { fontSize: '11px', color: 'var(--color-primary)' }, text: role.desc })
+      ]),
+      h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '12px', background: 'var(--color-surface-2)', padding: '6px 8px', borderRadius: '6px' } }, [
+        h('span', { class: 'note' }, [
+          h('span', { style: { fontWeight: '600', color: 'var(--color-text)' }, text: 'Email: ' }),
+          h('code', { class: 'mono', style: { color: 'var(--color-text)' }, text: role.email })
+        ]),
+        h('span', { class: 'note' }, [
+          h('span', { style: { fontWeight: '600', color: 'var(--color-text)' }, text: 'Password: ' }),
+          h('code', { class: 'mono', style: { color: 'var(--color-primary)', fontWeight: '700' }, text: role.pass })
+        ])
+      ]),
+      h('button', {
+        class: `btn btn--${role.tone} btn--sm`,
+        type: 'button',
+        style: 'width: 100%; font-weight: 600; margin-top: 2px;',
+        text: `⚡ Sign in as ${role.role} (${role.email})`,
+        onclick: async () => {
+          email.value = role.email;
+          password.value = role.pass;
+          await doAuth(false);
+        }
+      })
+    ])
   );
 
-  const demoBox = h('div', { class: 'stack', style: { gap: '6px', background: 'var(--color-surface-2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--color-border)' } }, [
+  const demoBox = h('div', {
+    class: 'stack',
+    style: {
+      gap: '8px',
+      background: 'var(--color-surface-2)',
+      padding: '12px',
+      borderRadius: '10px',
+      border: '1px solid var(--color-border)'
+    }
+  }, [
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-      h('span', { class: 'note', style: { fontWeight: '600' }, text: 'Quick fill demo role:' }),
-      h('span', { class: 'note mono', style: { fontSize: '11px' }, text: '1-click credentials' })
+      h('span', { style: { fontWeight: '700', fontSize: '13px' }, text: '🔑 3 Demo Accounts (With Visible Passwords)' }),
+      h('span', { class: 'note mono', style: { fontSize: '11px' }, text: '1-click sign in' })
     ]),
-    h('div', { style: { display: 'flex', gap: '6px' } }, roleButtons)
+    h('p', { class: 'note', style: { margin: '0 0 2px 0', fontSize: '12px' }, text: 'Test any role below. Each account shows its visible email and password, plus a 1-click instant login button:' }),
+    ...roleCards
+  ]);
+
+  const divider = h('div', { style: { textAlign: 'center', margin: '4px 0' } }, [
+    h('span', { class: 'note mono', style: { fontSize: '11px', textTransform: 'uppercase' }, text: '— Or enter credentials manually —' })
   ]);
 
   openModal({
-    title: state.user && state.user.role !== 'guest' ? `Signed in as ${state.user.email}` : 'Sign in or create an account',
+    title: requireLogin ? 'Sign in to complete your purchase' : (state.user && state.user.role !== 'guest' ? `Signed in as ${state.user.email}` : 'Sign in or create an account'),
     body: h('form', { class: 'stack', id: 'auth-form', onsubmit: (event) => { event.preventDefault(); doAuth(false); } }, [
+      notice,
       error,
       demoBox,
+      divider,
       h('div', {}, [h('label', { text: 'Email', for: 'auth-email' }), email]),
       h('div', {}, [h('label', { text: 'Password', for: 'auth-password' }), password]),
-      h('p', { class: 'note', text: 'No account needed to browse, chat or check out. Sign in to access your saved account. Your current guest cart is preserved.' })
+      h('p', { class: 'note', text: 'Sign in to complete orders and access your order history. Your current cart items are preserved and merged upon sign-in.' })
     ]),
     actions: [
-      h('button', { class: 'btn btn--ghost', type: 'button', text: 'Continue as guest', onclick: closeModal }),
+      h('button', { class: 'btn btn--ghost', type: 'button', text: requireLogin ? 'Cancel' : 'Continue as guest', onclick: closeModal }),
       h('button', { class: 'btn btn--secondary', type: 'button', text: 'Create account', onclick: () => doAuth(true) }),
       h('button', { class: 'btn btn--primary', type: 'submit', form: 'auth-form', text: 'Sign in' })
     ]
@@ -198,7 +282,11 @@ function openAuth() {
       closeModal();
       updateNavForRole();
       await restoreConversation();
-      await route();
+      if (onSuccess) {
+        await onSuccess(state.user);
+      } else {
+        await route();
+      }
     } catch (authError) {
       error.replaceChildren(h('div', { class: 'callout callout--danger', text: `${authError.message} (${authError.code})` }));
     } finally {
@@ -362,4 +450,4 @@ function wire() {
   }
 })();
 
-export { navigate, openAuth };
+export { navigate };

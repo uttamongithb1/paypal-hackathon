@@ -13,6 +13,9 @@ try {
   await page.waitForSelector('.card-grid--catalogue .card');
   check(await page.locator('#view-shop').isHidden(), 'assistant starts closed');
   check(await page.locator('.card-grid--catalogue .card').count() > 0, 'guest catalogue loads');
+  check(await page.locator('a[data-nav="merchant"]').isHidden(), 'merchant nav is hidden for guest');
+  check(await page.locator('#admin-nav').isHidden(), 'admin nav is hidden for guest');
+  check(await page.locator('#foot-admin-link').isHidden(), 'foot admin link is hidden for guest');
   await page.click('#assistant-launcher');
   await page.fill('#chat-input', 'laptop under $900 with 16GB RAM');
   await page.click('#chat-send');
@@ -55,10 +58,39 @@ try {
   await page.press('#auth-password', 'Enter');
   await page.waitForSelector('#modal-overlay', { state: 'detached' });
   check(await page.locator('#auth-button').innerText() === 'customer', 'email/password login works');
+  check(await page.locator('a[data-nav="merchant"]').isHidden(), 'merchant nav is hidden for customer');
+  check(await page.locator('#admin-nav').isHidden(), 'admin nav is hidden for customer');
+  check(await page.locator('#foot-admin-link').isHidden(), 'foot admin link is hidden for customer');
   await page.click('#auth-button');
   check(await page.getByText('Your account', { exact: true }).isVisible(), 'account button does not silently sign out');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.waitForSelector('#modal-overlay', { state: 'detached' });
+
+  // Merchant login check
+  await page.click('#auth-button');
+  await page.fill('#auth-email', 'merchant@demo.dev');
+  await page.fill('#auth-password', 'Merchant@12345');
+  await page.press('#auth-password', 'Enter');
+  await page.waitForSelector('#modal-overlay', { state: 'detached' });
+  check(await page.locator('a[data-nav="merchant"]').isVisible(), 'merchant nav is visible for merchant');
+  check(await page.locator('#admin-nav').isHidden(), 'admin nav is hidden for merchant');
+  await page.click('#auth-button');
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.waitForSelector('#modal-overlay', { state: 'detached' });
+
+  // Admin login check
+  await page.click('#auth-button');
+  await page.fill('#auth-email', 'admin@demo.dev');
+  await page.fill('#auth-password', 'Admin@12345');
+  await page.press('#auth-password', 'Enter');
+  await page.waitForSelector('#modal-overlay', { state: 'detached' });
+  check(await page.locator('#admin-nav').isVisible(), 'admin nav is visible for admin');
+  check(await page.locator('#foot-admin-link').isVisible(), 'foot admin link is visible for admin');
+  await page.click('#auth-button');
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.waitForSelector('#modal-overlay', { state: 'detached' });
+  check(await page.locator('a[data-nav="merchant"]').isHidden(), 'merchant nav is hidden after sign out');
+  check(await page.locator('#admin-nav').isHidden(), 'admin nav is hidden after sign out');
   await page.goto(base);
   await page.waitForSelector('.card-grid--catalogue .card');
   await page.setViewportSize({ width: 390, height: 844 });

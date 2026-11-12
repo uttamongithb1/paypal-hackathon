@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import cp from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +44,15 @@ const fail = (msg) => {
 };
 
 console.log('\nStorefront import graph\n');
+
+for (const file of files) {
+  if (file.endsWith('.min.js')) continue;
+  try {
+    cp.execSync(`node --check "${path.join(dir, file)}"`, { stdio: 'pipe' });
+  } catch (err) {
+    fail(`${file}: syntax error: ${err.stderr?.toString().trim().split('\n')[0] || err.message}`);
+  }
+}
 
 for (const [file, src] of source) {
   for (const m of src.matchAll(/import\s+(?:([A-Za-z0-9_$]+)\s*,\s*)?(?:\{([^}]*)\})?\s*from\s*'(\.[^']+)'/g)) {

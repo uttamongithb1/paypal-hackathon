@@ -321,7 +321,7 @@ export function registerRoutes(app, c) {
   // ── Payments ─────────────────────────────────────────────────────────────
   v1.post('/payments/:orderId/capture', rateLimit(env.rates.payment), asyncHandler(async (req, res) => {
     const { body } = validate({ body: schemas.capture }, req);
-    if (body.simulatedOutcome && payment.gateway.mode !== 'simulator') {
+    if (body.simulatedOutcome && body.simulatedOutcome !== 'approve' && payment.gateway.mode !== 'simulator') {
       throw new ApiError('VALIDATION_ERROR', 'simulatedOutcome is only available in simulator mode.');
     }
     const key = idempotencyKey(req, { sessionId: req.auth.session._id });

@@ -41,6 +41,20 @@ const buyButton = (productId, quantity = 1, label = 'Buy', { tone = 'secondary',
       button.textContent = 'Opening…';
       try {
         await addToCart(productId, quantity);
+        const isGuest = !state.user || state.user.role === 'guest';
+        if (isGuest) {
+          const { openAuth } = await import('./app.js');
+          openAuth({
+            message: 'You must be signed in to purchase items. Click the 1-click Demo Shopper button below to sign in.',
+            requireLogin: true,
+            onSuccess: async () => {
+              const { openCart } = await import('./cart.js');
+              openCart();
+            }
+          });
+          toast('Item added to cart — please sign in to buy', { tone: 'default' });
+          return;
+        }
         const { openCart } = await import('./cart.js');
         openCart();
       } catch (error) {
@@ -204,7 +218,25 @@ export function checkoutCard(component, { onApprove } = {}) {
       h('p', { class: 'note', text: 'Nothing has been charged. Press Approve & Pay to finish checkout; PayPal captures the money, our backend verifies it, and only then is the order marked paid.' })
     ]),
     amountBreakdown(payload.amounts),
-    h('button', { class: 'btn btn--primary btn--block', type: 'button', text: 'Approve & Pay →', onclick: () => onApprove?.(payload.orderId) }),
+    h('button', {
+      class: 'btn btn--primary btn--block',
+      type: 'button',
+      text: 'Approve & Pay →',
+      onclick: async () => {
+        const isGuest = !state.user || state.user.role === 'guest';
+        if (isGuest) {
+          const { openAuth } = await import('./app.js');
+          openAuth({
+            message: 'You must be signed in to complete your checkout and buy. Use the 1-click Demo Shopper button below.',
+            requireLogin: true,
+            onSuccess: () => onApprove?.(payload.orderId)
+          });
+          toast('Please sign in to buy', { tone: 'default' });
+          return;
+        }
+        onApprove?.(payload.orderId);
+      }
+    }),
     payload.warnings?.length ? h('div', { class: 'note', text: payload.warnings.map((w) => w.message).join(' ') }) : null
   ]);
 }

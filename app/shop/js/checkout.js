@@ -115,6 +115,31 @@ function payPanel(order) {
     return panel;
   }
 
+  const isGuest = !state.user || state.user.role === 'guest';
+  if (isGuest) {
+    panel.append(
+      h('div', { class: 'callout callout--warning' }, [
+        h('strong', { text: 'Sign in required to pay' }),
+        h('p', { class: 'note', text: 'You must be signed in to purchase items. Please log in with your account or use the 1-click Demo Shopper account.' }),
+        h('button', {
+          class: 'btn btn--primary btn--block',
+          type: 'button',
+          style: 'margin-top: 10px;',
+          text: 'Sign in to Pay →',
+          onclick: async () => {
+            const { openAuth } = await import('./app.js');
+            openAuth({
+              message: 'Sign in to complete payment for this order.',
+              requireLogin: true,
+              onSuccess: () => renderCheckout(order.id)
+            });
+          }
+        })
+      ])
+    );
+    return panel;
+  }
+
   panel.append(
     h('div', { class: 'callout callout--agent' }, [
       h('strong', { text: 'Only you can pay' }),
@@ -154,6 +179,11 @@ function paypalControls(order) {
     host.replaceChildren(h('div', { class: 'callout callout--warning', text: 'PAYPAL_MODE=sandbox but no PAYPAL_CLIENT_ID is configured for the browser SDK. Add it to .env or switch to simulator mode.' }));
     return host;
   }
+  const payees = (order.payment?.settlement?.units ?? [])
+    .map((u) => u.payee?.emailAddress || u.payee?.email_address || u.payeeEmail)
+    .filter(Boolean);
+  const payeesAttr = payees.join(',');
+
   const mountButtons = () => {
     if (!window.paypal?.Buttons) {
       host.replaceChildren(h('div', { class: 'callout callout--danger', text: 'PayPal SDK loaded but did not initialise.' }));
@@ -163,7 +193,7 @@ function paypalControls(order) {
     window.paypal.Buttons({
       style: { layout: 'vertical', shape: 'pill', label: 'paypal', color: 'gold' },
       createOrder: () => order.payment?.paypalOrderId,
-      onApprove: (data) => capture(null, order, 'approve', data?.orderID),
+      onApprove: (data) => capture(null, order, null, data?.orderID),
       onCancel: () => toast('Checkout cancelled in PayPal — nothing was charged.', { tone: 'warning' }),
       // PayPal's own error page says "Things don't appear to be working at the moment", which
       // tells nobody anything. The usual cause in a sandbox is the buyer account's balance, or an
@@ -181,13 +211,24 @@ function paypalControls(order) {
     }).render(host);
   };
 
-  if (window.paypal?.Buttons) {
+  const existingScript = document.querySelector('script[src*="paypal.com/sdk/js"]');
+  const existingMerchantId = existingScript?.getAttribute('data-merchant-id') ?? '';
+  if (window.paypal?.Buttons && (!payeesAttr || existingMerchantId === payeesAttr)) {
     mountButtons();
     return host;
   }
 
+  if (existingScript) {
+    existingScript.remove();
+    delete window.paypal;
+  }
+
   const script = document.createElement('script');
-  script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture&components=buttons`;
+  const merchantQuery = payees.length > 0 ? '&merchant-id=*' : '';
+  script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}${merchantQuery}&currency=USD&intent=capture&components=buttons`;
+  if (payees.length > 0) {
+    script.setAttribute('data-merchant-id', payeesAttr);
+  }
   script.onload = mountButtons;
   script.onerror = () => host.replaceChildren(h('div', { class: 'callout callout--danger', text: 'Could not load the PayPal SDK (offline?). The order is safe — retry when back online.' }));
   document.head.append(script);
@@ -197,12 +238,19 @@ function paypalControls(order) {
 async function capture(button, order, outcome, paypalOrderId) {
   if (button) {
     button.disabled = true;
-    button.textContent = outcome === 'approve' ? 'Contacting PayPal…' : 'Working…';
+    button.textContent = outcome === 'approve' || !outcome ? 'Contacting PayPal…' : 'Working…';
   }
   try {
-    const result = await capturePayment(order.id, { paypalOrderId: paypalOrderId ?? order.payment?.paypalOrderId, simulatedOutcome: outcome });
-    if (outcome === 'approve' && result.payment?.captureId) {
-      toast(`Paid ${money(result.payment.amountMinor)} — capture ${result.payment.captureId} verified`, { tone: 'success' });
+    const isSimulator = (state.env?.paypalMode ?? 'simulator') !== 'sandbox';
+    // Only pass simulatedOutcome when running in simulator mode.
+    // In sandbox mode with real PayPal SDK, simulatedOutcome must NOT be sent.
+    const payload = { paypalOrderId: paypalOrderId ?? order.payment?.paypalOrderId };
+    if (isSimulator && outcome) {
+      payload.simulatedOutcome = outcome;
+    }
+    const result = await capturePayment(order.id, payload);
+    if (result.payment?.captureId || result.payment?.status === 'captured') {
+      toast(`Paid ${money(result.payment?.amountMinor ?? order.amounts.totalMinor)} — capture ${result.payment?.captureId ?? ''} verified`, { tone: 'success' });
       closeCartAndReload();
       return;
     }
